@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Facebook Multi-Page Auto Poster</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f2f5;
+      color: #1c1e21;
+      margin: 0;
+      padding: 20px 14px;
+    }
+    .container { max-width: 820px; margin: 0 auto; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 16px; color: #1877f2; }
+    h2 { font-size: 1.1rem; margin: 0 0 12px; }
+    input, textarea, select, button {
+      width: 100%;
+      padding: 10px 12px;
+      margin: 6px 0 12px;
+      border: 1px solid #ccd0d5;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    button {
+      background: #1877f2;
+      color: #fff;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #166fe5; }
+    button:disabled { background: #9cb4d8; cursor: not-allowed; }
+    .btn-inline {
+      width: auto;
+      padding: 8px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    button.btn-danger {
+      background: #e41e3f;
+      width: auto;
+      padding: 6px 12px;
+      margin: 0;
+      font-size: 12px;
+    }
+    button.btn-secondary {
+      background: #4b4f56;
+      width: auto;
+      padding: 7px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #ebedf0;
+      gap: 10px;
+    }
+    .list-item:last-child { border-bottom: none; }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+      cursor: pointer;
+    }
+    .checkbox-row input { width: auto; margin: 0; }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .pending { background: #fff3cd; color: #856404; }
+    .processing { background: #cce5ff; color: #004085; }
+    .posted { background: #d4edda; color: #155724; }
+    .failed { background: #f8d7da; color: #721c24; }
+    .hidden { display: none; }
+    .preview-media {
+      max-width: 100%;
+      max-height: 240px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .thumb {
+      width: 54px;
+      height: 54px;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+      background: #1c1e21;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .item-left { display: flex; align-items: center; gap: 10px; }
+    .progress-wrap {
+      width: 100%;
+      background: #e4e6eb;
+      border-radius: 999px;
+      height: 10px;
+      overflow: hidden;
+      margin: 6px 0 10px;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: #1877f2;
+      transition: width 0.2s;
+    }
+    small { color: #65676b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Facebook Multi-Page Auto Poster</h1>
+
+    <!-- LOGIN SECTION -->
+    <div id="loginCard" class="card">
+      <h2>Admin Sign In</h2>
+      <form id="emailLoginForm">
+        <input
+          type="email"
+          id="emailInput"
+          value="firatech2541@gmail.com"
+          placeholder="Admin Email"
+          required
+        />
+        <input
+          type="password"
+          id="passwordInput"
+          placeholder="Password"
+          required
+        />
+        <button type="submit" id="emailLoginBtn">Sign In</button>
+      </form>
+      <p id="loginError" style="color:#e41e3f; margin:6px 0 0;"></p>
+    </div>
+
+    <!-- APP DASHBOARD -->
+    <div id="appSection" class="hidden">
+      <div class="topbar">
+        <small id="userLabel"></small>
+        <div class="row-actions">
+          <button type="button" id="logoutBtn" class="btn-secondary">Sign Out</button>
+        </div>
+      </div>
+
+      <!-- WORKFLOW TRIGGER CONFIG -->
+      <div class="card">
+        <h2>GitHub Workflow Trigger (Admin)</h2>
+        <small>
+          Saved to Firebase Realtime Database (<code>workflowConfig</code>) and cached in this browser so you can trigger <code>autoposter.yml</code> on demand.
+          Requires a GitHub Fine-Grained PAT with <strong>Actions: Read &amp; write</strong> on <code>birrgo/Facebook</code>.
+        </small>
+        <input
+          type="password"
+          id="ghTokenInput"
+          placeholder="GitHub Fine-Grained Token (github_pat_...)"
+        />
+        <div class="row-actions">
+          <button type="button" id="saveGhTokenBtn" class="btn-secondary">Save Token</button>
+          <button type="button" id="clearGhTokenBtn" class="btn-danger">Clear Token</button>
+          <button type="button" id="triggerNowBtn" class="btn-inline">Run Autoposter Now</button>
+        </div>
+        <p id="workflowStatus" style="font-weight:600; margin:8px 0 0;"></p>
+      </div>
+
+      <!-- 1. MANAGE FACEBOOK PAGES -->
+      <div class="card">
+        <h2>1. Add &amp; Manage Facebook Pages</h2>
+        <input type="text" id="pageNameInput" placeholder="Page Name (e.g. BirrGo News)" />
+        <input type="text" id="pageIdInput" placeholder="Facebook Page ID (e.g. 109876543210)" />
+        <input type="password" id="pageTokenInput" placeholder="Long-Lived Page Access Token" />
+        <button type="button" id="addPageBtn">+ Save Facebook Page</button>
+        <div id="pagesListContainer"></div>
+      </div>
+
+      <!-- 2. UPLOAD IMAGE OR VIDEO & SCHEDULE POST -->
+      <div class="card">
+        <h2>2. Upload Image or Video (Max 200 MB) &amp; Schedule Post</h2>
+        <label><strong>Select Image or Video (Max 200 MB)</strong></label>
+        <input type="file" id="mediaFileInput" accept="image/*,video/*" />
+        <img id="imagePreview" class="preview-media" alt="Image Preview" />
+        <video id="videoPreview" class="preview-media" controls></video>
+
+        <label class="checkbox-row" style="margin-bottom:4px;">
+          <input type="checkbox" id="fastCompressCheckbox" checked />
+          <small><strong>Fast Image Optimization</strong> (resizes &amp; compresses large photos for faster upload)</small>
+        </label>
+
+        <label class="checkbox-row" style="margin-bottom:8px;">
+          <input type="checkbox" id="rtdbFallbackCheckbox" checked />
+          <small><strong>Direct DB Fallback (Images)</strong> (saves image directly to Realtime DB if Storage stalls)</small>
+        </label>
+
+        <div id="uploadProgressWrap" class="progress-wrap">
+          <div id="uploadProgressBar" class="progress-bar"></div>
+        </div>
+
+        <label><strong>Post Caption</strong></label>
+        <textarea id="captionInput" rows="3" placeholder="Write caption for all selected pages..."></textarea>
+
+        <label><strong>Target Pages</strong></label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="selectAllCheckbox" checked />
+          <strong>Select ALL Pages</strong>
+        </label>
+        <div id="pageCheckboxesContainer"></div>
+
+        <label style="display:block; margin-top:10px;"><strong>Schedule Time</strong></label>
+        <select id="publishTypeSelect">
+          <option value="now">Post Immediately</option>
+          <option value="schedule">Schedule Specific Date &amp; Time</option>
+        </select>
+        <input type="datetime-local" id="scheduleDateTimeInput" class="hidden" />
+
+        <button type="button" id="uploadAndQueueBtn">Save &amp; Publish / Schedule</button>
+        <p id="statusMessage" style="font-weight:600; margin:6px 0 0;"></p>
+      </div>
+
+      <!-- 3. SCHEDULED / ACTIVE QUEUE -->
+      <div class="card">
+        <h2>3. Active &amp; Scheduled Queue</h2>
+        <small>Media is uploaded to Firebase Storage and automatically deleted after posting to save storage.</small>
+        <div id="postsListContainer"></div>
+      </div>
+
+      <!-- 4. ALL POSTED ITEMS -->
+      <div class="card">
+        <div class="topbar" style="margin-bottom:8px;">
+          <h2 style="margin:0;">4. All Posted Items</h2>
+          <div class="row-actions">
+            <button type="button" id="deleteAllPostedBtn" class="btn-danger">Delete Posted Items</button>
+            <button type="button" id="clearHistoryBtn" class="btn-secondary">Clear History</button>
+          </div>
+        </div>
+        <small>Shows all posted items and lets you remove any leftover queue/storage entries to save storage.</small>
+        <div id="postedItemsContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getAuth,
+      signInWithEmailAndPassword,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      getDatabase,
+      ref,
+      push,
+      set,
+      remove,
+      onValue
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+    import {
+      getStorage,
+      ref as storageRef,
+      uploadBytesResumable,
+      getDownloadURL,
+      deleteObject
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLpsaHZAkQaItuLnLN1d4DEj735_3Zho0",
+      authDomain: "facebook-d49ac.firebaseapp.com",
+      databaseURL: "https://facebook-d49ac-default-rtdb.firebaseio.com",
+      projectId: "facebook-d49ac",
+      storageBucket: "facebook-d49ac.firebasestorage.app",
+      messagingSenderId: "574829461616",
+      appId: "1:574829461616:web:9a6a1cad912da293d4f4b5",
+      measurementId: "G-E8RFDP367Z"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    const storage = getStorage(app);
+
+    const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
+    const UPLOAD_STALL_TIMEOUT_MS = 12000;
+    const MAX_BASE64_IMAGE_BYTES = 2.5 * 1024 * 1024;
+    const GH_OWNER = "birrgo";
+    const GH_REPO = "Facebook";
+    const GH_WORKFLOW_FILE = "autoposter.yml";
+    const GH_TOKEN_STORAGE_KEY = "gh_autoposter_pat";
+
+    const loginCard = document.getElementById("loginCard");
+    const appSection = document.getElementById("appSection");
+    const loginError = document.getElementById("loginError");
+    const userLabel = document.getElementById("userLabel");
+    const emailLoginForm = document.getElementById("emailLoginForm");
+    const emailLoginBtn = document.getElementById("emailLoginBtn");
+    const ghTokenInput = document.getElementById("ghTokenInput");
+    const workflowStatus = document.getElementById("workflowStatus");
+    const pagesListContainer = document.getElementById("pagesListContainer");
+    const pageCheckboxesContainer = document.getElementById("pageCheckboxesContainer");
+    const postsListContainer = document.getElementById("postsListContainer");
+    const postedItemsContainer = document.getElementById("postedItemsContainer");
+    const selectAllCheckbox = document.getElementById("selectAllCheckbox");
+    const fastCompressCheckbox = document.getElementById("fastCompressCheckbox");
+    const rtdbFallbackCheckbox = document.getElementById("rtdbFallbackCheckbox");
+    const publishTypeSelect = document.getElementById("publishTypeSelect");
+    const scheduleDateTimeInput = document.getElementById("scheduleDateTimeInput");
+    const mediaFileInput = document.getElementById("mediaFileInput");
+    const imagePreview = document.getElementById("imagePreview");
+    const videoPreview = document.getElementById("videoPreview");
+    const uploadProgressWrap = document.getElementById("uploadProgressWrap");
+    const uploadProgressBar = document.getElementById("uploadProgressBar");
+    const statusMessage = document.getElementById("statusMessage");
+
+    let listenersStarted = false;
+    let latestPagesMap = {};
+    let latestPostsMap = {};
+    let latestPostedHistoryMap = {};
+
+    const savedGhToken = localStorage.getItem(GH_TOKEN_STORAGE_KEY);
+    if (savedGhToken) {
+      ghTokenInput.value = savedGhToken;
+    }
+
+    async function saveWorkflowToken(token) {
+      localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
+      if (auth.currentUser) {
+        await set(ref(db, "workflowConfig"), {
+          githubToken: token,
+          updatedAt: Date.now()
+        });
+      }
+    }
+
+    async function clearWorkflowToken() {
+      localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+      if (auth.currentUser) {
+        await remove(ref(db, "workflowConfig"));
+      }
+    }
+
+    async function triggerWorkflowDispatch() {
+      const token = (ghTokenInput.value || localStorage.getItem(GH_TOKEN_STORAGE_KEY) || "").trim();
+      if (!token) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Enter and save a GitHub Fine-Grained Token with Actions write access first.";
+        return false;
+      }
+
+      await saveWorkflowToken(token);
+      workflowStatus.style.color = "#1877f2";
+      workflowStatus.textContent = "Dispatching Autoposter workflow on main...";
+
+      const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/workflows/${GH_WORKFLOW_FILE}/dispatches`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ ref: "main" })
+      });
+
+      if (!res.ok) {
+        const bodyText = await res.text();
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = `Workflow dispatch failed (${res.status}): ${bodyText || "Check token permissions."}`;
+        return false;
+      }
+
+      workflowStatus.style.color = "#155724";
+      workflowStatus.textContent = "Triggered Autoposter workflow! Check GitHub Actions in ~15-25s.";
+      return true;
+    }
+
+    document.getElementById("saveGhTokenBtn").addEventListener("click", async () => {
+      const token = ghTokenInput.value.trim();
+      if (!token) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Please paste a GitHub token before saving.";
+        return;
+      }
+      try {
+        await saveWorkflowToken(token);
+        workflowStatus.style.color = "#155724";
+        workflowStatus.textContent = "GitHub token saved to Realtime Database & browser.";
+      } catch (err) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Failed to save token: " + err.message;
+      }
+    });
+
+    document.getElementById("clearGhTokenBtn").addEventListener("click", async () => {
+      try {
+        await clearWorkflowToken();
+        ghTokenInput.value = "";
+        workflowStatus.style.color = "#4b4f56";
+        workflowStatus.textContent = "Saved GitHub token cleared.";
+      } catch (err) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Failed to clear token: " + err.message;
+      }
+    });
+
+    document.getElementById("triggerNowBtn").addEventListener("click", async (e) => {
+      const btnEl = e.currentTarget;
+      btnEl.disabled = true;
+      try {
+        await triggerWorkflowDispatch();
+      } catch (err) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Error triggering workflow: " + err.message;
+      } finally {
+        btnEl.disabled = false;
+      }
+    });
+
+    async function optimizeImageIfNeeded(file, maxDim = 1440, quality = 0.8) {
+      if (!fastCompressCheckbox.checked || !file.type.startsWith("image/")) {
+        return file;
+      }
+      if (file.size < 350 * 1024) return file;
+
+      try {
+        const bitmap = await createImageBitmap(file);
+        let { width, height } = bitmap;
+
+        if (width > maxDim || height > maxDim) {
+          const scale = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        bitmap.close?.();
+
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", quality)
+        );
+
+        if (blob && blob.size > 0 && blob.size < file.size) {
+          const baseName = file.name.replace(/\.[^.]+$/, "");
+          return new File([blob], `${baseName}.jpg`, {
+            type: "image/jpeg",
+            lastModified: Date.now()
+          });
+        }
+      } catch {}
+      return file;
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read file as data URL."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function uploadMediaToStorage(file, userId) {
+      return new Promise((resolve, reject) => {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `mediaUploads/${userId}/${Date.now()}_${safeName}`;
+        const fileRef = storageRef(storage, path);
+
+        uploadProgressWrap.style.display = "block";
+        uploadProgressBar.style.width = "0%";
+        statusMessage.style.color = "#1877f2";
+        statusMessage.textContent = `Uploading ${file.type.startsWith("video/") ? "video" : "image"} to Firebase Storage: 0%`;
+
+        let settled = false;
+        let lastBytes = 0;
+        let stallTimer = null;
+
+        const resetStallTimer = () => {
+          clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            try { task.cancel(); } catch {}
+            uploadProgressWrap.style.display = "none";
+            reject(
+              new Error(
+                `Storage upload stalled at ${lastBytes === 0 ? "0%" : "in progress"} (${UPLOAD_STALL_TIMEOUT_MS / 1000}s).`
+              )
+            );
+          }, UPLOAD_STALL_TIMEOUT_MS);
+        };
+
+        const task = uploadBytesResumable(fileRef, file, { contentType: file.type });
+        resetStallTimer();
+
+        task.on(
+          "state_changed",
+          (snap) => {
+            if (settled) return;
+            if (snap.bytesTransferred > lastBytes) {
+              lastBytes = snap.bytesTransferred;
+              resetStallTimer();
+            }
+            const pct = snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0;
+            uploadProgressBar.style.width = `${pct}%`;
+            statusMessage.textContent = `Uploading ${file.type.startsWith("video/") ? "video" : "image"} to Firebase Storage: ${pct}%`;
+          },
+          (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(stallTimer);
+            uploadProgressWrap.style.display = "none";
+            reject(new Error(`${err.code || "storage/error"}: ${err.message}`));
+          },
+          async () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(stallTimer);
+            try {
+              statusMessage.textContent = "Upload complete! Saving to Realtime Database...";
+              const downloadUrl = await getDownloadURL(task.snapshot.ref);
+              uploadProgressWrap.style.display = "none";
+              resolve({ storagePath: path, mediaUrl: downloadUrl });
+            } catch (err) {
+              uploadProgressWrap.style.display = "none";
+              reject(err);
+            }
+          }
+        );
+      });
+    }
+
+    async function deleteStorageFileSafe(storagePath) {
+      if (!storagePath) return;
+      try {
+        await deleteObject(storageRef(storage, storagePath));
+      } catch (err) {
+        if (err?.code !== "storage/object-not-found") {
+          console.warn("Storage delete warning:", err.message || err);
+        }
+      }
+    }
+
+    async function deleteQueuePostAndMedia(postId, postData) {
+      await deleteStorageFileSafe(postData?.storagePath);
+      await remove(ref(db, `scheduledPosts/${postId}`));
+    }
+
+    emailLoginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.textContent = "";
+      const email = document.getElementById("emailInput").value.trim();
+      const password = document.getElementById("passwordInput").value;
+
+      emailLoginBtn.disabled = true;
+      emailLoginBtn.textContent = "Signing in...";
+
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        loginError.textContent = err.message;
+      } finally {
+        emailLoginBtn.disabled = false;
+        emailLoginBtn.textContent = "Sign In";
+      }
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loginCard.classList.add("hidden");
+        appSection.classList.remove("hidden");
+        userLabel.innerHTML = `Signed in as <strong>${user.email}</strong><br/>UID: <code>${user.uid}</code>`;
+        if (!listenersStarted) {
+          listenersStarted = true;
+          startRealtimeListeners();
+        }
+      } else {
+        loginCard.classList.remove("hidden");
+        appSection.classList.add("hidden");
+      }
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
+
+    mediaFileInput.addEventListener("change", () => {
+      const file = mediaFileInput.files[0];
+      imagePreview.style.display = "none";
+      videoPreview.style.display = "none";
+      imagePreview.removeAttribute("src");
+      videoPreview.removeAttribute("src");
+
+      if (!file) return;
+      const blobUrl = URL.createObjectURL(file);
+
+      if (file.type.startsWith("video/")) {
+        videoPreview.src = blobUrl;
+        videoPreview.style.display = "block";
+      } else if (file.type.startsWith("image/")) {
+        imagePreview.src = blobUrl;
+        imagePreview.style.display = "block";
+      }
+    });
+
+    publishTypeSelect.addEventListener("change", () => {
+      scheduleDateTimeInput.classList.toggle("hidden", publishTypeSelect.value === "now");
+    });
+
+    selectAllCheckbox.addEventListener("change", () => {
+      document.querySelectorAll(".page-target-cb").forEach((cb) => {
+        cb.checked = selectAllCheckbox.checked;
+      });
+    });
+
+    document.getElementById("addPageBtn").addEventListener("click", async () => {
+      const pageName = document.getElementById("pageNameInput").value.trim();
+      const fbPageId = document.getElementById("pageIdInput").value.trim();
+      const accessToken = document.getElementById("pageTokenInput").value.trim();
+
+      if (!pageName || !fbPageId || !accessToken) {
+        alert("Please enter Page Name, Page ID, and Access Token.");
+        return;
+      }
+
+      await set(push(ref(db, "fbPages")), {
+        pageName,
+        fbPageId,
+        accessToken,
+        createdAt: Date.now()
+      });
+
+      document.getElementById("pageNameInput").value = "";
+      document.getElementById("pageIdInput").value = "";
+      document.getElementById("pageTokenInput").value = "";
+    });
+
+    document.getElementById("uploadAndQueueBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("uploadAndQueueBtn");
+      const rawFile = mediaFileInput.files[0];
+      const caption = document.getElementById("captionInput").value.trim();
+      const selectedPages = Array.from(document.querySelectorAll(".page-target-cb:checked")).map(
+        (cb) => cb.value
+      );
+      const currentUser = auth.currentUser;
+
+      if (!currentUser) {
+        alert("Please sign in first.");
+        return;
+      }
+      if (!rawFile) {
+        alert("Please choose an image or video to upload.");
+        return;
+      }
+      const isImage = rawFile.type.startsWith("image/");
+      const isVideo = rawFile.type.startsWith("video/");
+      if (!isImage && !isVideo) {
+        alert("Please select a valid image or video file.");
+        return;
+      }
+      if (rawFile.size > MAX_MEDIA_BYTES) {
+        alert("File exceeds the 200 MB maximum size limit.");
+        return;
+      }
+      if (selectedPages.length === 0) {
+        alert("Please select at least one Facebook Page.");
+        return;
+      }
+
+      let scheduledTime = Date.now();
+      if (publishTypeSelect.value === "schedule") {
+        if (!scheduleDateTimeInput.value) {
+          alert("Please choose a date and time.");
+          return;
+        }
+        scheduledTime = new Date(scheduleDateTimeInput.value).getTime();
+      }
+
+      btn.disabled = true;
+      statusMessage.style.color = "#1877f2";
+      statusMessage.textContent = isImage ? "Optimizing image..." : "Preparing video upload...";
+
+      try {
+        const file = isImage ? await optimizeImageIfNeeded(rawFile) : rawFile;
+        let storagePath = "";
+        let mediaUrl = "";
+        let usedFallback = false;
+
+        try {
+          const uploaded = await uploadMediaToStorage(file, currentUser.uid);
+          storagePath = uploaded.storagePath;
+          mediaUrl = uploaded.mediaUrl;
+        } catch (storageErr) {
+          if (isImage && rtdbFallbackCheckbox.checked && file.size <= MAX_BASE64_IMAGE_BYTES) {
+            statusMessage.textContent = "Storage stalled—saving image directly to Realtime Database...";
+            mediaUrl = await fileToDataUrl(file);
+            usedFallback = true;
+          } else {
+            throw new Error(
+              `${storageErr.message} Enable Cloud Storage in Firebase Console & allow auth write on mediaUploads/{userId}.`
+            );
+          }
+        }
+
+        await set(push(ref(db, "scheduledPosts")), {
+          mediaType: isVideo ? "video" : "image",
+          storagePath,
+          mediaUrl,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          caption,
+          targetPages: selectedPages,
+          scheduledTime,
+          status: "pending",
+          createdAt: Date.now()
+        });
+
+        mediaFileInput.value = "";
+        imagePreview.style.display = "none";
+        videoPreview.style.display = "none";
+        document.getElementById("captionInput").value = "";
+
+        if (publishTypeSelect.value === "now") {
+          statusMessage.textContent = usedFallback
+            ? "Saved to Realtime Database (Storage fallback)! Triggering Autoposter..."
+            : "Saved to Realtime Database! Triggering Autoposter workflow...";
+          try {
+            await triggerWorkflowDispatch();
+          } catch (dispatchErr) {
+            console.warn("Auto-trigger failed:", dispatchErr);
+          }
+        } else {
+          statusMessage.textContent = `Saved & scheduled for ${new Date(scheduledTime).toLocaleString()}!`;
+        }
+        statusMessage.style.color = "#155724";
+      } catch (err) {
+        statusMessage.style.color = "#e41e3f";
+        statusMessage.textContent = "Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("deleteAllPostedBtn").addEventListener("click", async () => {
+      const postedEntries = Object.entries(latestPostsMap).filter(([, p]) => p.status === "posted");
+      if (postedEntries.length === 0) {
+        alert("No posted items left in the active queue to delete.");
+        return;
+      }
+
+      const btn = document.getElementById("deleteAllPostedBtn");
+      btn.disabled = true;
+      try {
+        for (const [postId, post] of postedEntries) {
+          await deleteQueuePostAndMedia(postId, post);
+        }
+        statusMessage.style.color = "#155724";
+        statusMessage.textContent = `Deleted ${postedEntries.length} posted item(s) and their storage files.`;
+      } catch (err) {
+        statusMessage.style.color = "#e41e3f";
+        statusMessage.textContent = "Error deleting posted items: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("clearHistoryBtn").addEventListener("click", async () => {
+      if (Object.keys(latestPostedHistoryMap).length === 0) return;
+      await remove(ref(db, "postedHistory"));
+    });
+
+    function formatPageNames(targetPages) {
+      const keys = Array.isArray(targetPages) ? targetPages : Object.values(targetPages || {});
+      if (!keys.length) return "0 page(s)";
+      return keys.map((k) => latestPagesMap[k]?.pageName || k).join(", ");
+    }
+
+    function renderActiveQueue() {
+      postsListContainer.innerHTML = "";
+      const entries = Object.entries(latestPostsMap).reverse();
+      if (entries.length === 0) {
+        postsListContainer.innerHTML = "<small>No posts in active queue.</small>";
+        return;
+      }
+
+      entries.forEach(([postId, post]) => {
+        const row = document.createElement("div");
+        row.className = "list-item";
+        const timeText = new Date(post.scheduledTime).toLocaleString();
+        const isVideo = post.mediaType === "video" || post.mimeType?.startsWith("video/");
+        const thumbHtml = isVideo
+          ? `<div class="thumb">VIDEO</div>`
+          : `<img src="${post.mediaUrl || post.imageUrl || ""}" class="thumb" alt="Post" />`;
+        const sizeMb = post.fileSize ? ` • ${(post.fileSize / (1024 * 1024)).toFixed(1)} MB` : "";
+
+        row.innerHTML = `
+          <div class="item-left">
+            ${thumbHtml}
+            <div>
+              <strong>${post.caption || "(No caption)"}</strong><br />
+              <small>${isVideo ? "Video" : "Image"}${sizeMb} • ${timeText} • Pages: ${formatPageNames(post.targetPages)}</small>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="badge ${post.status || "pending"}">${(post.status || "pending").toUpperCase()}</span>
+            <button type="button" class="btn-danger" data-del="${postId}">Delete</button>
+          </div>
+        `;
+        row.querySelector("[data-del]").onclick = () => deleteQueuePostAndMedia(postId, post);
+        postsListContainer.appendChild(row);
+      });
+    }
+
+    function renderPostedItems() {
+      postedItemsContainer.innerHTML = "";
+
+      const historyItems = Object.entries(latestPostedHistoryMap).map(([id, item]) => ({
+        id,
+        source: "history",
+        ...item
+      }));
+      const queuePostedItems = Object.entries(latestPostsMap)
+        .filter(([, post]) => post.status === "posted")
+        .map(([id, post]) => ({
+          id,
+          source: "queue",
+          caption: post.caption,
+          mediaType: post.mediaType || (post.mimeType?.startsWith("video/") ? "video" : "image"),
+          fileName: post.fileName,
+          targetPages: post.targetPages,
+          postedAt: post.processedAt || post.scheduledTime || Date.now()
+        }));
+
+      const combined = [...historyItems, ...queuePostedItems].sort(
+        (a, b) => (b.postedAt || 0) - (a.postedAt || 0)
+      );
+
+      if (combined.length === 0) {
+        postedItemsContainer.innerHTML = "<small>No posted items recorded yet.</small>";
+        return;
+      }
+
+      combined.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "list-item";
+        const postedTime = new Date(item.postedAt || Date.now()).toLocaleString();
+        const mediaLabel = item.mediaType === "video" ? "Video" : "Image";
+
+        row.innerHTML = `
+          <div class="item-left">
+            <div class="thumb" style="background:#155724;">POSTED</div>
+            <div>
+              <strong>${item.caption || item.fileName || "(No caption)"}</strong><br />
+              <small>${mediaLabel} • Posted: ${postedTime} • Pages: ${formatPageNames(item.targetPages)}</small>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="badge posted">POSTED</span>
+            <button type="button" class="btn-danger" data-remove-posted="${item.id}" data-src="${item.source}">Remove</button>
+          </div>
+        `;
+        row.querySelector("[data-remove-posted]").onclick = async () => {
+          if (item.source === "queue") {
+            await deleteQueuePostAndMedia(item.id, latestPostsMap[item.id]);
+          } else {
+            await remove(ref(db, `postedHistory/${item.id}`));
+          }
+        };
+        postedItemsContainer.appendChild(row);
+      });
+    }
+
+    function startRealtimeListeners() {
+      onValue(ref(db, "workflowConfig"), (snapshot) => {
+        const cfg = snapshot.val();
+        if (cfg && typeof cfg.githubToken === "string" && cfg.githubToken.trim()) {
+          ghTokenInput.value = cfg.githubToken;
+          localStorage.setItem(GH_TOKEN_STORAGE_KEY, cfg.githubToken);
+        }
+      });
+
+      onValue(ref(db, "fbPages"), (snapshot) => {
+        const pages = snapshot.val() || {};
+        latestPagesMap = pages;
+        pagesListContainer.innerHTML = "";
+        pageCheckboxesContainer.innerHTML = "";
+
+        const entries = Object.entries(pages);
+        if (entries.length === 0) {
+          pagesListContainer.innerHTML = "<small>No Facebook Pages added yet.</small>";
+          renderActiveQueue();
+          renderPostedItems();
+          return;
+        }
+
+        entries.forEach(([key, page]) => {
+          const row = document.createElement("div");
+          row.className = "list-item";
+          row.innerHTML = `
+            <div>
+              <strong>${page.pageName}</strong><br />
+              <small>Page ID: ${page.fbPageId}</small>
+            </div>
+          `;
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "btn-danger";
+          delBtn.textContent = "Delete";
+          delBtn.onclick = () => remove(ref(db, `fbPages/${key}`));
+          row.appendChild(delBtn);
+          pagesListContainer.appendChild(row);
+
+          const label = document.createElement("label");
+          label.className = "checkbox-row";
+          label.innerHTML = `
+            <input type="checkbox" class="page-target-cb" value="${key}" checked />
+            <span>${page.pageName}</span>
+          `;
+          pageCheckboxesContainer.appendChild(label);
+        });
+
+        renderActiveQueue();
+        renderPostedItems();
+      });
+
+      onValue(ref(db, "scheduledPosts"), (snapshot) => {
+        latestPostsMap = snapshot.val() || {};
+        renderActiveQueue();
+        renderPostedItems();
+      });
+
+      onValue(ref(db, "postedHistory"), (snapshot) => {
+        latestPostedHistoryMap = snapshot.val() || {};
+        renderPostedItems();
+      });
+    }
+  </script>
+</body>
+</html>
