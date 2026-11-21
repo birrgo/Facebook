@@ -182,7 +182,7 @@
       <div class="topbar">
         <small id="userLabel"></small>
         <div class="row-actions">
-          <button type="button" id="forceRerunBtn" class="btn-success">Force Re-run Workflow</button>
+          <button type="button" id="rerunWorkflowBtn" class="btn-success">Re-run Workflow</button>
           <button type="button" id="logoutBtn" class="btn-secondary">Sign Out</button>
         </div>
       </div>
@@ -191,7 +191,8 @@
       <div class="card">
         <h2>GitHub Workflow Trigger (Admin)</h2>
         <small>
-          Stored locally in this browser (<code>localStorage</code>) so you can trigger <code>autoposter.yml</code> on demand without waiting 5 minutes.
+          Managed manually from admin controls via <code>workflow_dispatch</code> on <code>autoposter.yml</code>.
+          Saved to Firebase Realtime Database (<code>workflowConfig</code>) and cached locally in this browser.
           Requires a GitHub Fine-Grained PAT with <strong>Actions: Read &amp; write</strong> on <code>birrgo/Facebook</code>.
         </small>
         <input
@@ -322,9 +323,9 @@
     const db = getDatabase(app);
     const storage = getStorage(app);
 
-    const MAX_MEDIA_BYTES = 200 * 1024 * 1024; // 200 MB
-    const UPLOAD_STALL_TIMEOUT_MS = 12000; // Fail fast if stuck at 0% for 12s
-    const MAX_BASE64_IMAGE_BYTES = 2.5 * 1024 * 1024; // Keep RTDB fallback images compact
+    const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
+    const UPLOAD_STALL_TIMEOUT_MS = 12000;
+    const MAX_BASE64_IMAGE_BYTES = 2.5 * 1024 * 1024;
     const GH_OWNER = "birrgo";
     const GH_REPO = "Facebook";
     const GH_WORKFLOW_FILE = "autoposter.yml";
@@ -364,6 +365,23 @@
       ghTokenInput.value = savedGhToken;
     }
 
+    async function saveWorkflowToken(token) {
+      localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
+      if (auth.currentUser) {
+        await set(ref(db, "workflowConfig"), {
+          githubToken: token,
+          updatedAt: Date.now()
+        });
+      }
+    }
+
+    async function clearWorkflowToken() {
+      localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+      if (auth.currentUser) {
+        await remove(ref(db, "workflowConfig"));
+      }
+    }
+
     async function triggerWorkflowDispatch() {
       const token = (ghTokenInput.value || localStorage.getItem(GH_TOKEN_STORAGE_KEY) || "").trim();
       if (!token) {
@@ -372,7 +390,7 @@
         return false;
       }
 
-      localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
+      await saveWorkflowToken(token);
       workflowStatus.style.color = "#1877f2";
       workflowStatus.textContent = "Dispatching Autoposter workflow on main...";
 
@@ -399,26 +417,7 @@
       return true;
     }
 
-    document.getElementById("saveGhTokenBtn").addEventListener("click", () => {
-      const token = ghTokenInput.value.trim();
-      if (!token) {
-        workflowStatus.style.color = "#e41e3f";
-        workflowStatus.textContent = "Please paste a GitHub token before saving.";
-        return;
-      }
-      localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
-      workflowStatus.style.color = "#155724";
-      workflowStatus.textContent = "GitHub token saved in this browser.";
-    });
-
-    document.getElementById("clearGhTokenBtn").addEventListener("click", () => {
-      localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
-      ghTokenInput.value = "";
-      workflowStatus.style.color = "#4b4f56";
-      workflowStatus.textContent = "Saved GitHub token cleared.";
-    });
-
-    async function handleForceRerunClick(btnEl) {
+    async function handleWorkflowRunClick(btnEl) {
       btnEl.disabled = true;
       try {
         await triggerWorkflowDispatch();
@@ -430,8 +429,37 @@
       }
     }
 
-    document.getElementById("forceRerunBtn").addEventListener("click", (e) => handleForceRerunClick(e.currentTarget));
-    document.getElementById("triggerNowBtn").addEventListener("click", (e) => handleForceRerunClick(e.currentTarget));
+    document.getElementById("saveGhTokenBtn").addEventListener("click", async () => {
+      const token = ghTokenInput.value.trim();
+      if (!token) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Please paste a GitHub token before saving.";
+        return;
+      }
+      try {
+        await saveWorkflowToken(token);
+        workflowStatus.style.color = "#155724";
+        workflowStatus.textContent = "GitHub token saved to Realtime Database & browser.";
+      } catch (err) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Failed to save token: " + err.message;
+      }
+    });
+
+    document.getElementById("clearGhTokenBtn").addEventListener("click", async () => {
+      try {
+        await clearWorkflowToken();
+        ghTokenInput.value = "";
+        workflowStatus.style.color = "#4b4f56";
+        workflowStatus.textContent = "Saved GitHub token cleared.";
+      } catch (err) {
+        workflowStatus.style.color = "#e41e3f";
+        workflowStatus.textContent = "Failed to clear token: " + err.message;
+      }
+    });
+
+    document.getElementById("rerunWorkflowBtn").addEventListener("click", (e) => handleWorkflowRunClick(e.currentTarget));
+    document.getElementById("triggerNowBtn").addEventListener("click", (e) => handleWorkflowRunClick(e.currentTarget));
 
     async function optimizeImageIfNeeded(file, maxDim = 1440, quality = 0.8) {
       if (!fastCompressCheckbox.checked || !file.type.startsWith("image/")) {
@@ -467,9 +495,7 @@
             lastModified: Date.now()
           });
         }
-      } catch {
-        // Fallback to original file if canvas/bitmap fails
-      }
+      } catch {}
       return file;
     }
 
@@ -495,6 +521,7 @@
 
         let settled = false;
         let lastBytes = 0;
+        let stallTimer = null;
 
         const resetStallTimer = () => {
           clearTimeout(stallTimer);
@@ -512,7 +539,6 @@
         };
 
         const task = uploadBytesResumable(fileRef, file, { contentType: file.type });
-        let stallTimer = null;
         resetStallTimer();
 
         task.on(
@@ -892,6 +918,14 @@
     }
 
     function startRealtimeListeners() {
+      onValue(ref(db, "workflowConfig"), (snapshot) => {
+        const cfg = snapshot.val();
+        if (cfg && typeof cfg.githubToken === "string" && cfg.githubToken.trim()) {
+          ghTokenInput.value = cfg.githubToken;
+          localStorage.setItem(GH_TOKEN_STORAGE_KEY, cfg.githubToken);
+        }
+      });
+
       onValue(ref(db, "fbPages"), (snapshot) => {
         const pages = snapshot.val() || {};
         latestPagesMap = pages;
