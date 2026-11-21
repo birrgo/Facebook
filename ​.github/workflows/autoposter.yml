@@ -1,9 +1,9 @@
-name: Post Scheduled Items to Facebook
+name: Autoposter
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # Runs every 5 minutes
-  workflow_dispatch: # Allows you to test manually with one click
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 jobs:
   publish:
