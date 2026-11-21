@@ -225,9 +225,14 @@
         <img id="imagePreview" class="preview-media" alt="Image Preview" />
         <video id="videoPreview" class="preview-media" controls></video>
 
-        <label class="checkbox-row" style="margin-bottom:8px;">
+        <label class="checkbox-row" style="margin-bottom:4px;">
           <input type="checkbox" id="fastCompressCheckbox" checked />
-          <small><strong>Fast Image Optimization</strong> (compresses large photos before upload for faster posting)</small>
+          <small><strong>Fast Image Optimization</strong> (resizes &amp; compresses large photos for faster upload)</small>
+        </label>
+
+        <label class="checkbox-row" style="margin-bottom:8px;">
+          <input type="checkbox" id="rtdbFallbackCheckbox" checked />
+          <small><strong>Direct DB Fallback (Images)</strong> (saves image directly to Realtime DB if Storage stalls)</small>
         </label>
 
         <div id="uploadProgressWrap" class="progress-wrap">
@@ -318,7 +323,8 @@
     const storage = getStorage(app);
 
     const MAX_MEDIA_BYTES = 200 * 1024 * 1024; // 200 MB
-    const UPLOAD_STALL_TIMEOUT_MS = 25000; // Fail fast if stuck at 0% for 25s
+    const UPLOAD_STALL_TIMEOUT_MS = 12000; // Fail fast if stuck at 0% for 12s
+    const MAX_BASE64_IMAGE_BYTES = 2.5 * 1024 * 1024; // Keep RTDB fallback images compact
     const GH_OWNER = "birrgo";
     const GH_REPO = "Facebook";
     const GH_WORKFLOW_FILE = "autoposter.yml";
@@ -338,6 +344,7 @@
     const postedItemsContainer = document.getElementById("postedItemsContainer");
     const selectAllCheckbox = document.getElementById("selectAllCheckbox");
     const fastCompressCheckbox = document.getElementById("fastCompressCheckbox");
+    const rtdbFallbackCheckbox = document.getElementById("rtdbFallbackCheckbox");
     const publishTypeSelect = document.getElementById("publishTypeSelect");
     const scheduleDateTimeInput = document.getElementById("scheduleDateTimeInput");
     const mediaFileInput = document.getElementById("mediaFileInput");
@@ -426,17 +433,14 @@
     document.getElementById("forceRerunBtn").addEventListener("click", (e) => handleForceRerunClick(e.currentTarget));
     document.getElementById("triggerNowBtn").addEventListener("click", (e) => handleForceRerunClick(e.currentTarget));
 
-    // Compress large images on-device for fast mobile uploads
-    async function optimizeImageIfNeeded(file) {
+    async function optimizeImageIfNeeded(file, maxDim = 1440, quality = 0.8) {
       if (!fastCompressCheckbox.checked || !file.type.startsWith("image/")) {
         return file;
       }
-      // Skip small images under 400 KB
-      if (file.size < 400 * 1024) return file;
+      if (file.size < 350 * 1024) return file;
 
       try {
         const bitmap = await createImageBitmap(file);
-        const maxDim = 1600;
         let { width, height } = bitmap;
 
         if (width > maxDim || height > maxDim) {
@@ -453,7 +457,7 @@
         bitmap.close?.();
 
         const blob = await new Promise((resolve) =>
-          canvas.toBlob(resolve, "image/jpeg", 0.82)
+          canvas.toBlob(resolve, "image/jpeg", quality)
         );
 
         if (blob && blob.size > 0 && blob.size < file.size) {
@@ -469,6 +473,15 @@
       return file;
     }
 
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read file as data URL."));
+        reader.readAsDataURL(file);
+      });
+    }
+
     function uploadMediaToStorage(file, userId) {
       return new Promise((resolve, reject) => {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -478,7 +491,7 @@
         uploadProgressWrap.style.display = "block";
         uploadProgressBar.style.width = "0%";
         statusMessage.style.color = "#1877f2";
-        statusMessage.textContent = `Starting ${file.type.startsWith("video/") ? "video" : "image"} upload...`;
+        statusMessage.textContent = `Uploading ${file.type.startsWith("video/") ? "video" : "image"} to Firebase Storage: 0%`;
 
         let settled = false;
         let lastBytes = 0;
@@ -492,7 +505,7 @@
             uploadProgressWrap.style.display = "none";
             reject(
               new Error(
-                `Upload stalled at ${lastBytes === 0 ? "0%" : "in progress"} for 25s. Check Firebase Storage Rules (allow auth write on mediaUploads), Storage bucket/billing, or network connection.`
+                `Storage upload stalled at ${lastBytes === 0 ? "0%" : "in progress"} (${UPLOAD_STALL_TIMEOUT_MS / 1000}s).`
               )
             );
           }, UPLOAD_STALL_TIMEOUT_MS);
@@ -689,7 +702,25 @@
 
       try {
         const file = isImage ? await optimizeImageIfNeeded(rawFile) : rawFile;
-        const { storagePath, mediaUrl } = await uploadMediaToStorage(file, currentUser.uid);
+        let storagePath = "";
+        let mediaUrl = "";
+        let usedFallback = false;
+
+        try {
+          const uploaded = await uploadMediaToStorage(file, currentUser.uid);
+          storagePath = uploaded.storagePath;
+          mediaUrl = uploaded.mediaUrl;
+        } catch (storageErr) {
+          if (isImage && rtdbFallbackCheckbox.checked && file.size <= MAX_BASE64_IMAGE_BYTES) {
+            statusMessage.textContent = "Storage stalled—saving image directly to Realtime Database...";
+            mediaUrl = await fileToDataUrl(file);
+            usedFallback = true;
+          } else {
+            throw new Error(
+              `${storageErr.message} Enable Cloud Storage in Firebase Console & allow auth write on mediaUploads/{userId}.`
+            );
+          }
+        }
 
         await set(push(ref(db, "scheduledPosts")), {
           mediaType: isVideo ? "video" : "image",
@@ -711,7 +742,9 @@
         document.getElementById("captionInput").value = "";
 
         if (publishTypeSelect.value === "now") {
-          statusMessage.textContent = "Saved to Realtime Database! Triggering Autoposter workflow...";
+          statusMessage.textContent = usedFallback
+            ? "Saved to Realtime Database (Storage fallback)! Triggering Autoposter..."
+            : "Saved to Realtime Database! Triggering Autoposter workflow...";
           try {
             await triggerWorkflowDispatch();
           } catch (dispatchErr) {
