@@ -11,9 +11,9 @@ admin.initializeApp({
 const db = admin.database();
 
 function parseBase64DataUrl(dataUrl) {
-  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl || "");
+  const match = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl || "");
   if (!match) {
-    throw new Error("Invalid Base64 image Data URL format.");
+    throw new Error("Invalid Base64 Data URL format.");
   }
   const mimeType = match[1];
   const base64Data = match[2];
@@ -22,18 +22,60 @@ function parseBase64DataUrl(dataUrl) {
   return { buffer, mimeType, filename: `upload.${ext}` };
 }
 
-async function publishPhotoToPage({ fbPageId, accessToken, caption, imageDataUrl }) {
-  const { buffer, mimeType, filename } = parseBase64DataUrl(imageDataUrl);
-  const formData = new FormData();
-  const blob = new Blob([buffer], { type: mimeType });
-
-  formData.append("source", blob, filename);
-  if (caption) {
-    formData.append("caption", caption);
+async function resolveMediaBlob(mediaSource) {
+  if (!mediaSource || typeof mediaSource !== "string") {
+    throw new Error("Missing media URL or image data in scheduled post.");
   }
+
+  if (mediaSource.startsWith("data:")) {
+    const { buffer, mimeType, filename } = parseBase64DataUrl(mediaSource);
+    return {
+      blob: new Blob([buffer], { type: mimeType }),
+      filename,
+      remoteUrl: null
+    };
+  }
+
+  if (/^https?:\/\//i.test(mediaSource)) {
+    const res = await fetch(mediaSource);
+    if (!res.ok) {
+      throw new Error(`Failed to download media (${res.status}) from ${mediaSource}`);
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    const mimeType = res.headers.get("content-type") || "image/jpeg";
+    const ext = mimeType.includes("video") ? "mp4" : "jpg";
+    return {
+      blob: new Blob([arrayBuffer], { type: mimeType }),
+      filename: `upload.${ext}`,
+      remoteUrl: mediaSource
+    };
+  }
+
+  throw new Error("Unsupported media URL format.");
+}
+
+async function publishMediaToPage({ fbPageId, accessToken, caption, mediaSource, mediaType }) {
+  const isVideo = mediaType === "video";
+  const endpoint = isVideo
+    ? `https://graph.facebook.com/v21.0/${fbPageId}/videos`
+    : `https://graph.facebook.com/v21.0/${fbPageId}/photos`;
+
+  const { blob, filename, remoteUrl } = await resolveMediaBlob(mediaSource);
+  const formData = new FormData();
+
+  if (isVideo && remoteUrl) {
+    formData.append("file_url", remoteUrl);
+    if (caption) formData.append("description", caption);
+  } else {
+    formData.append("source", blob, filename);
+    if (caption) {
+      formData.append(isVideo ? "description" : "caption", caption);
+    }
+  }
+
   formData.append("access_token", accessToken);
 
-  const response = await fetch(`https://graph.facebook.com/v21.0/${fbPageId}/photos`, {
+  const response = await fetch(endpoint, {
     method: "POST",
     body: formData
   });
@@ -68,6 +110,10 @@ async function run() {
     const postRef = db.ref(`scheduledPosts/${postId}`);
     await postRef.update({ status: "processing", startedAt: Date.now() });
 
+    const mediaSource = post.mediaUrl || post.imageUrl;
+    const mediaType =
+      post.mediaType || (post.mimeType?.startsWith("video/") ? "video" : "image");
+
     const targetKeys = Array.isArray(post.targetPages)
       ? post.targetPages
       : Object.values(post.targetPages || {});
@@ -84,11 +130,12 @@ async function run() {
       }
 
       try {
-        const fbRes = await publishPhotoToPage({
+        const fbRes = await publishMediaToPage({
           fbPageId: page.fbPageId,
           accessToken: page.accessToken,
           caption: post.caption || "",
-          imageDataUrl: post.imageUrl
+          mediaSource,
+          mediaType
         });
         results.push({
           pageKey,
@@ -109,11 +156,25 @@ async function run() {
       }
     }
 
+    const processedAt = Date.now();
+
     await postRef.update({
       status: allSucceeded ? "posted" : "failed",
-      processedAt: Date.now(),
+      processedAt,
       publishResults: results
     });
+
+    if (allSucceeded) {
+      await db.ref("postedHistory").push({
+        sourcePostId: postId,
+        caption: post.caption || "",
+        mediaType,
+        fileName: post.fileName || "",
+        targetPages: targetKeys,
+        postedAt: processedAt,
+        publishResults: results
+      });
+    }
   }
 }
 
