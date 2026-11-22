@@ -2,13 +2,17 @@ import admin from "firebase-admin";
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 const databaseURL = process.env.FIREBASE_DATABASE_URL;
+const storageBucketName =
+  process.env.FIREBASE_STORAGE_BUCKET || serviceAccount.project_id + ".firebasestorage.app";
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL
+  databaseURL,
+  storageBucket: storageBucketName
 });
 
 const db = admin.database();
+const bucket = admin.storage().bucket();
 
 function parseBase64DataUrl(dataUrl) {
   const match = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl || "");
@@ -85,6 +89,16 @@ async function publishMediaToPage({ fbPageId, accessToken, caption, mediaSource,
     throw new Error(data.error?.message || `Facebook API error (${response.status})`);
   }
   return data;
+}
+
+async function deleteStorageFileIfPresent(storagePath) {
+  if (!storagePath || typeof storagePath !== "string") return;
+  try {
+    await bucket.file(storagePath).delete({ ignoreNotFound: true });
+    console.log(`Deleted Firebase Storage file: ${storagePath}`);
+  } catch (err) {
+    console.warn(`Failed to delete Storage file ${storagePath}:`, err.message);
+  }
 }
 
 async function run() {
@@ -165,6 +179,7 @@ async function run() {
     });
 
     if (allSucceeded) {
+      await deleteStorageFileIfPresent(post.storagePath);
       await db.ref("postedHistory").push({
         sourcePostId: postId,
         caption: post.caption || "",
