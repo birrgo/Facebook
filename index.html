@@ -132,7 +132,14 @@
       font-size: 11px;
       font-weight: 700;
     }
-    .item-left { display: flex; align-items: center; gap: 10px; }
+    .item-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .error-text {
+      display: block;
+      color: #c91836;
+      font-size: 12px;
+      margin-top: 4px;
+      word-break: break-word;
+    }
     .progress-wrap {
       width: 100%;
       background: #e4e6eb;
@@ -359,6 +366,27 @@
     let latestPagesMap = {};
     let latestPostsMap = {};
     let latestPostedHistoryMap = {};
+    let currentPreviewBlobUrl = null;
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function clearMediaPreview() {
+      if (currentPreviewBlobUrl) {
+        URL.revokeObjectURL(currentPreviewBlobUrl);
+        currentPreviewBlobUrl = null;
+      }
+      imagePreview.style.display = "none";
+      videoPreview.style.display = "none";
+      imagePreview.removeAttribute("src");
+      videoPreview.removeAttribute("src");
+    }
 
     const savedGhToken = localStorage.getItem(GH_TOKEN_STORAGE_KEY);
     if (savedGhToken) {
@@ -617,7 +645,7 @@
       if (user) {
         loginCard.classList.add("hidden");
         appSection.classList.remove("hidden");
-        userLabel.innerHTML = `Signed in as <strong>${user.email}</strong><br/>UID: <code>${user.uid}</code>`;
+        userLabel.innerHTML = `Signed in as <strong>${escapeHtml(user.email)}</strong><br/>UID: <code>${escapeHtml(user.uid)}</code>`;
         if (!listenersStarted) {
           listenersStarted = true;
           startRealtimeListeners();
@@ -632,19 +660,16 @@
 
     mediaFileInput.addEventListener("change", () => {
       const file = mediaFileInput.files[0];
-      imagePreview.style.display = "none";
-      videoPreview.style.display = "none";
-      imagePreview.removeAttribute("src");
-      videoPreview.removeAttribute("src");
-
+      clearMediaPreview();
       if (!file) return;
-      const blobUrl = URL.createObjectURL(file);
+
+      currentPreviewBlobUrl = URL.createObjectURL(file);
 
       if (file.type.startsWith("video/")) {
-        videoPreview.src = blobUrl;
+        videoPreview.src = currentPreviewBlobUrl;
         videoPreview.style.display = "block";
       } else if (file.type.startsWith("image/")) {
-        imagePreview.src = blobUrl;
+        imagePreview.src = currentPreviewBlobUrl;
         imagePreview.style.display = "block";
       }
     });
@@ -763,8 +788,7 @@
         });
 
         mediaFileInput.value = "";
-        imagePreview.style.display = "none";
-        videoPreview.style.display = "none";
+        clearMediaPreview();
         document.getElementById("captionInput").value = "";
 
         if (publishTypeSelect.value === "now") {
@@ -822,6 +846,14 @@
       return keys.map((k) => latestPagesMap[k]?.pageName || k).join(", ");
     }
 
+    function formatFailureReasons(publishResults) {
+      if (!Array.isArray(publishResults)) return "";
+      const errs = publishResults
+        .filter((r) => r && r.ok === false && r.error)
+        .map((r) => `${r.pageName || r.fbPageId || r.pageKey || "Page"}: ${r.error}`);
+      return errs.join(" | ");
+    }
+
     function renderActiveQueue() {
       postsListContainer.innerHTML = "";
       const entries = Object.entries(latestPostsMap).reverse();
@@ -835,22 +867,25 @@
         row.className = "list-item";
         const timeText = new Date(post.scheduledTime).toLocaleString();
         const isVideo = post.mediaType === "video" || post.mimeType?.startsWith("video/");
+        const safeSrc = escapeHtml(post.mediaUrl || post.imageUrl || "");
         const thumbHtml = isVideo
           ? `<div class="thumb">VIDEO</div>`
-          : `<img src="${post.mediaUrl || post.imageUrl || ""}" class="thumb" alt="Post" />`;
+          : `<img src="${safeSrc}" class="thumb" alt="Post" />`;
         const sizeMb = post.fileSize ? ` • ${(post.fileSize / (1024 * 1024)).toFixed(1)} MB` : "";
+        const errSummary = post.status === "failed" ? formatFailureReasons(post.publishResults) : "";
 
         row.innerHTML = `
           <div class="item-left">
             ${thumbHtml}
             <div>
-              <strong>${post.caption || "(No caption)"}</strong><br />
-              <small>${isVideo ? "Video" : "Image"}${sizeMb} • ${timeText} • Pages: ${formatPageNames(post.targetPages)}</small>
+              <strong>${escapeHtml(post.caption || "(No caption)")}</strong><br />
+              <small>${isVideo ? "Video" : "Image"}${escapeHtml(sizeMb)} • ${escapeHtml(timeText)} • Pages: ${escapeHtml(formatPageNames(post.targetPages))}</small>
+              ${errSummary ? `<span class="error-text">${escapeHtml(errSummary)}</span>` : ""}
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="badge ${post.status || "pending"}">${(post.status || "pending").toUpperCase()}</span>
-            <button type="button" class="btn-danger" data-del="${postId}">Delete</button>
+            <span class="badge ${escapeHtml(post.status || "pending")}">${escapeHtml((post.status || "pending").toUpperCase())}</span>
+            <button type="button" class="btn-danger" data-del="${escapeHtml(postId)}">Delete</button>
           </div>
         `;
         row.querySelector("[data-del]").onclick = () => deleteQueuePostAndMedia(postId, post);
@@ -897,20 +932,24 @@
           <div class="item-left">
             <div class="thumb" style="background:#155724;">POSTED</div>
             <div>
-              <strong>${item.caption || item.fileName || "(No caption)"}</strong><br />
-              <small>${mediaLabel} • Posted: ${postedTime} • Pages: ${formatPageNames(item.targetPages)}</small>
+              <strong>${escapeHtml(item.caption || item.fileName || "(No caption)")}</strong><br />
+              <small>${escapeHtml(mediaLabel)} • Posted: ${escapeHtml(postedTime)} • Pages: ${escapeHtml(formatPageNames(item.targetPages))}</small>
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <span class="badge posted">POSTED</span>
-            <button type="button" class="btn-danger" data-remove-posted="${item.id}" data-src="${item.source}">Remove</button>
+            <button type="button" class="btn-danger" data-remove-posted="${escapeHtml(item.id)}">Remove</button>
           </div>
         `;
         row.querySelector("[data-remove-posted]").onclick = async () => {
-          if (item.source === "queue") {
-            await deleteQueuePostAndMedia(item.id, latestPostsMap[item.id]);
-          } else {
-            await remove(ref(db, `postedHistory/${item.id}`));
+          try {
+            if (item.source === "queue") {
+              await deleteQueuePostAndMedia(item.id, latestPostsMap[item.id]);
+            } else {
+              await remove(ref(db, `postedHistory/${item.id}`));
+            }
+          } catch (err) {
+            alert("Failed to remove item: " + err.message);
           }
         };
         postedItemsContainer.appendChild(row);
@@ -945,8 +984,8 @@
           row.className = "list-item";
           row.innerHTML = `
             <div>
-              <strong>${page.pageName}</strong><br />
-              <small>Page ID: ${page.fbPageId}</small>
+              <strong>${escapeHtml(page.pageName)}</strong><br />
+              <small>Page ID: ${escapeHtml(page.fbPageId)}</small>
             </div>
           `;
           const delBtn = document.createElement("button");
@@ -959,10 +998,15 @@
 
           const label = document.createElement("label");
           label.className = "checkbox-row";
-          label.innerHTML = `
-            <input type="checkbox" class="page-target-cb" value="${key}" checked />
-            <span>${page.pageName}</span>
-          `;
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "page-target-cb";
+          cb.value = key;
+          cb.checked = true;
+          const span = document.createElement("span");
+          span.textContent = page.pageName || "";
+          label.appendChild(cb);
+          label.appendChild(span);
           pageCheckboxesContainer.appendChild(label);
         });
 
