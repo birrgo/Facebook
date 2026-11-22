@@ -4,6 +4,7 @@ const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 const databaseURL = process.env.FIREBASE_DATABASE_URL;
 const storageBucketName =
   process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`;
+const PAGE_POST_DELAY_MS = Number(process.env.PAGE_POST_DELAY_MS || 4000);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -13,6 +14,10 @@ admin.initializeApp({
 
 const db = admin.database();
 const bucket = admin.storage().bucket();
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function parseBase64DataUrl(dataUrl) {
   const match = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl || "");
@@ -58,13 +63,34 @@ async function resolveMediaBlob(mediaSource) {
   throw new Error("Unsupported media URL format.");
 }
 
-async function publishMediaToPage({ fbPageId, accessToken, caption, mediaSource, mediaType }) {
+function resolveCaptionForPage(post, pageKey, page) {
+  const variations = post.pageVariations;
+  if (post.valueAddEnabled && variations && typeof variations === "object") {
+    const byKey = variations[pageKey];
+    if (byKey && typeof byKey.finalCaption === "string" && byKey.finalCaption.trim()) {
+      return byKey.finalCaption.trim();
+    }
+
+    if (page?.fbPageId) {
+      const byFbId = Object.values(variations).find(
+        (v) => v && String(v.fbPageId) === String(page.fbPageId) && typeof v.finalCaption === "string" && v.finalCaption.trim()
+      );
+      if (byFbId) {
+        return byFbId.finalCaption.trim();
+      }
+    }
+  }
+
+  return post.caption || "";
+}
+
+async function publishMediaToPage({ fbPageId, accessToken, caption, mediaSource, mediaType, cachedMedia }) {
   const isVideo = mediaType === "video";
   const endpoint = isVideo
     ? `https://graph.facebook.com/v21.0/${fbPageId}/videos`
     : `https://graph.facebook.com/v21.0/${fbPageId}/photos`;
 
-  const { blob, filename, remoteUrl } = await resolveMediaBlob(mediaSource);
+  const { blob, filename, remoteUrl } = cachedMedia || (await resolveMediaBlob(mediaSource));
   const formData = new FormData();
 
   if (isVideo && remoteUrl) {
@@ -132,10 +158,36 @@ async function run() {
       ? post.targetPages
       : Object.values(post.targetPages || {});
 
+    let cachedMedia = null;
+    try {
+      cachedMedia = await resolveMediaBlob(mediaSource);
+    } catch (mediaErr) {
+      const processedAt = Date.now();
+      const failedResults = targetKeys.map((pageKey) => ({
+        pageKey,
+        fbPageId: pages[pageKey]?.fbPageId || null,
+        pageName: pages[pageKey]?.pageName || null,
+        ok: false,
+        error: mediaErr.message
+      }));
+
+      await postRef.update({
+        status: "failed",
+        processedAt,
+        publishResults: failedResults
+      });
+      continue;
+    }
+
     const results = [];
     let allSucceeded = true;
 
-    for (const pageKey of targetKeys) {
+    for (let i = 0; i < targetKeys.length; i++) {
+      const pageKey = targetKeys[i];
+      if (i > 0 && PAGE_POST_DELAY_MS > 0) {
+        await sleep(PAGE_POST_DELAY_MS);
+      }
+
       const page = pages[pageKey];
       if (!page) {
         allSucceeded = false;
@@ -143,18 +195,22 @@ async function run() {
         continue;
       }
 
+      const pageCaption = resolveCaptionForPage(post, pageKey, page);
+
       try {
         const fbRes = await publishMediaToPage({
           fbPageId: page.fbPageId,
           accessToken: page.accessToken,
-          caption: post.caption || "",
+          caption: pageCaption,
           mediaSource,
-          mediaType
+          mediaType,
+          cachedMedia
         });
         results.push({
           pageKey,
           fbPageId: page.fbPageId,
           pageName: page.pageName,
+          captionUsed: pageCaption,
           ok: true,
           postId: fbRes.post_id || fbRes.id || null
         });
@@ -164,6 +220,7 @@ async function run() {
           pageKey,
           fbPageId: page.fbPageId,
           pageName: page.pageName,
+          captionUsed: pageCaption,
           ok: false,
           error: err.message
         });
@@ -183,6 +240,7 @@ async function run() {
       await db.ref("postedHistory").push({
         sourcePostId: postId,
         caption: post.caption || "",
+        valueAddEnabled: Boolean(post.valueAddEnabled),
         mediaType,
         fileName: post.fileName || "",
         targetPages: targetKeys,
