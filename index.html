@@ -331,7 +331,8 @@
     const storage = getStorage(app);
 
     const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
-    const UPLOAD_STALL_TIMEOUT_MS = 12000;
+    const IMAGE_UPLOAD_STALL_TIMEOUT_MS = 12000;   // 12 seconds for images
+    const VIDEO_UPLOAD_STALL_TIMEOUT_MS = 180000;  // 3 minutes (180s) for videos
     const MAX_BASE64_IMAGE_BYTES = 2.5 * 1024 * 1024;
     const GH_OWNER = "birrgo";
     const GH_REPO = "Facebook";
@@ -538,6 +539,8 @@
 
     function uploadMediaToStorage(file, userId) {
       return new Promise((resolve, reject) => {
+        const isVideo = file.type.startsWith("video/");
+        const stallTimeoutMs = isVideo ? VIDEO_UPLOAD_STALL_TIMEOUT_MS : IMAGE_UPLOAD_STALL_TIMEOUT_MS;
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
         const path = `mediaUploads/${userId}/${Date.now()}_${safeName}`;
         const fileRef = storageRef(storage, path);
@@ -545,7 +548,7 @@
         uploadProgressWrap.style.display = "block";
         uploadProgressBar.style.width = "0%";
         statusMessage.style.color = "#1877f2";
-        statusMessage.textContent = `Uploading ${file.type.startsWith("video/") ? "video" : "image"} to Firebase Storage: 0%`;
+        statusMessage.textContent = `Uploading ${isVideo ? "video" : "image"} to Firebase Storage: 0%`;
 
         let settled = false;
         let lastBytes = 0;
@@ -560,10 +563,10 @@
             uploadProgressWrap.style.display = "none";
             reject(
               new Error(
-                `Storage upload stalled at ${lastBytes === 0 ? "0%" : "in progress"} (${UPLOAD_STALL_TIMEOUT_MS / 1000}s).`
+                `Storage upload stalled at ${lastBytes === 0 ? "0%" : "in progress"} (${stallTimeoutMs / 1000}s).`
               )
             );
-          }, UPLOAD_STALL_TIMEOUT_MS);
+          }, stallTimeoutMs);
         };
 
         const task = uploadBytesResumable(fileRef, file, { contentType: file.type });
@@ -579,7 +582,7 @@
             }
             const pct = snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0;
             uploadProgressBar.style.width = `${pct}%`;
-            statusMessage.textContent = `Uploading ${file.type.startsWith("video/") ? "video" : "image"} to Firebase Storage: ${pct}%`;
+            statusMessage.textContent = `Uploading ${isVideo ? "video" : "image"} to Firebase Storage: ${pct}%`;
           },
           (err) => {
             if (settled) return;
