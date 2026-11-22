@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Facebook Multi-Page Auto Poster</title>
+  <title>Facebook Multi-Page Auto Poster (RTDB Only)</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -47,6 +47,15 @@
       margin: 0;
       font-size: 13px;
     }
+    button.btn-edit {
+      background: #f0ad4e;
+      color: #1c1e21;
+      width: auto;
+      padding: 6px 12px;
+      margin: 0;
+      font-size: 12px;
+    }
+    button.btn-edit:hover { background: #ec971f; }
     button.btn-danger {
       background: #e41e3f;
       width: auto;
@@ -140,27 +149,12 @@
       margin-top: 4px;
       word-break: break-word;
     }
-    .progress-wrap {
-      width: 100%;
-      background: #e4e6eb;
-      border-radius: 999px;
-      height: 10px;
-      overflow: hidden;
-      margin: 6px 0 10px;
-      display: none;
-    }
-    .progress-bar {
-      height: 100%;
-      width: 0%;
-      background: #1877f2;
-      transition: width 0.2s;
-    }
     small { color: #65676b; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Facebook Multi-Page Auto Poster</h1>
+    <h1>Facebook Multi-Page Auto Poster (Realtime DB Only)</h1>
 
     <!-- LOGIN SECTION -->
     <div id="loginCard" class="card">
@@ -221,30 +215,49 @@
         <input type="text" id="pageNameInput" placeholder="Page Name (e.g. BirrGo News)" />
         <input type="text" id="pageIdInput" placeholder="Facebook Page ID (e.g. 109876543210)" />
         <input type="password" id="pageTokenInput" placeholder="Long-Lived Page Access Token" />
-        <button type="button" id="addPageBtn">+ Save Facebook Page</button>
+        <div class="row-actions" style="margin-bottom:8px;">
+          <button type="button" id="addPageBtn" style="flex:1; margin:0;">+ Save Facebook Page</button>
+          <button type="button" id="cancelEditPageBtn" class="btn-secondary hidden">Cancel Edit</button>
+        </div>
         <div id="pagesListContainer"></div>
       </div>
 
-      <!-- 2. UPLOAD IMAGE OR VIDEO & SCHEDULE POST -->
+      <!-- 2. VIDEO URL OR IMAGE UPLOAD (RTDB ONLY) -->
       <div class="card">
-        <h2>2. Upload Image or Video (Max 200 MB) &amp; Schedule Post</h2>
-        <label><strong>Select Image or Video (Max 200 MB)</strong></label>
-        <input type="file" id="mediaFileInput" accept="image/*,video/*" />
-        <img id="imagePreview" class="preview-media" alt="Image Preview" />
-        <video id="videoPreview" class="preview-media" controls></video>
+        <h2>2. Schedule Video (by URL) or Image (to Realtime DB)</h2>
+        <small>
+          Because Firebase Storage is disabled, <strong>videos are saved by direct URL</strong> in Realtime Database,
+          while <strong>images</strong> are compressed and saved directly to Realtime Database.
+        </small>
 
-        <label class="checkbox-row" style="margin-bottom:4px;">
-          <input type="checkbox" id="fastCompressCheckbox" checked />
-          <small><strong>Fast Image Optimization</strong> (resizes &amp; compresses large photos for faster upload)</small>
-        </label>
+        <label style="display:block; margin-top:10px;"><strong>Media Type</strong></label>
+        <select id="mediaModeSelect">
+          <option value="video">Video (Direct Video URL)</option>
+          <option value="image">Image (Upload to Realtime DB)</option>
+        </select>
 
-        <label class="checkbox-row" style="margin-bottom:8px;">
-          <input type="checkbox" id="rtdbFallbackCheckbox" checked />
-          <small><strong>Direct DB Fallback (Images)</strong> (saves image directly to Realtime DB if Storage stalls)</small>
-        </label>
+        <!-- VIDEO URL INPUTS -->
+        <div id="videoUrlSection">
+          <label><strong>Direct Video URL (.mp4 / hosted link)</strong></label>
+          <input
+            type="url"
+            id="videoUrlInput"
+            placeholder="https://example.com/my-video.mp4"
+          />
+          <label><strong>Optional: Pick Local Video to Preview &amp; Read File Info</strong></label>
+          <input type="file" id="videoLocalPreviewInput" accept="video/*" />
+          <video id="videoPreview" class="preview-media" controls></video>
+        </div>
 
-        <div id="uploadProgressWrap" class="progress-wrap">
-          <div id="uploadProgressBar" class="progress-bar"></div>
+        <!-- IMAGE FILE INPUTS -->
+        <div id="imageUploadSection" class="hidden">
+          <label><strong>Select Image (Max ~2.5 MB after optimization)</strong></label>
+          <input type="file" id="imageFileInput" accept="image/*" />
+          <img id="imagePreview" class="preview-media" alt="Image Preview" />
+          <label class="checkbox-row" style="margin-bottom:8px;">
+            <input type="checkbox" id="fastCompressCheckbox" checked />
+            <small><strong>Fast Image Optimization</strong> (resizes &amp; compresses large photos for Realtime DB)</small>
+          </label>
         </div>
 
         <label><strong>Post Caption</strong></label>
@@ -271,7 +284,7 @@
       <!-- 3. SCHEDULED / ACTIVE QUEUE -->
       <div class="card">
         <h2>3. Active &amp; Scheduled Queue</h2>
-        <small>Media is uploaded to Firebase Storage and automatically deleted after posting to save storage.</small>
+        <small>Entries are stored in Firebase Realtime Database under <code>scheduledPosts</code>.</small>
         <div id="postsListContainer"></div>
       </div>
 
@@ -284,7 +297,7 @@
             <button type="button" id="clearHistoryBtn" class="btn-secondary">Clear History</button>
           </div>
         </div>
-        <small>Shows all posted items and lets you remove any leftover queue/storage entries to save storage.</small>
+        <small>Shows all posted items recorded in Realtime Database.</small>
         <div id="postedItemsContainer"></div>
       </div>
     </div>
@@ -303,16 +316,10 @@
       ref,
       push,
       set,
+      update,
       remove,
       onValue
     } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-    import {
-      getStorage,
-      ref as storageRef,
-      uploadBytesResumable,
-      getDownloadURL,
-      deleteObject
-    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDLpsaHZAkQaItuLnLN1d4DEj735_3Zho0",
@@ -328,12 +335,8 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getDatabase(app);
-    const storage = getStorage(app);
 
-    const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
-    const IMAGE_UPLOAD_STALL_TIMEOUT_MS = 12000;   // 12 seconds for images
-    const VIDEO_UPLOAD_STALL_TIMEOUT_MS = 180000;  // 3 minutes (180s) for videos
-    const MAX_BASE64_IMAGE_BYTES = 2.5 * 1024 * 1024;
+    const MAX_RTDB_IMAGE_BYTES = 2.5 * 1024 * 1024;
     const GH_OWNER = "birrgo";
     const GH_REPO = "Facebook";
     const GH_WORKFLOW_FILE = "autoposter.yml";
@@ -347,20 +350,27 @@
     const emailLoginBtn = document.getElementById("emailLoginBtn");
     const ghTokenInput = document.getElementById("ghTokenInput");
     const workflowStatus = document.getElementById("workflowStatus");
+    const pageNameInput = document.getElementById("pageNameInput");
+    const pageIdInput = document.getElementById("pageIdInput");
+    const pageTokenInput = document.getElementById("pageTokenInput");
+    const addPageBtn = document.getElementById("addPageBtn");
+    const cancelEditPageBtn = document.getElementById("cancelEditPageBtn");
     const pagesListContainer = document.getElementById("pagesListContainer");
     const pageCheckboxesContainer = document.getElementById("pageCheckboxesContainer");
     const postsListContainer = document.getElementById("postsListContainer");
     const postedItemsContainer = document.getElementById("postedItemsContainer");
     const selectAllCheckbox = document.getElementById("selectAllCheckbox");
+    const mediaModeSelect = document.getElementById("mediaModeSelect");
+    const videoUrlSection = document.getElementById("videoUrlSection");
+    const imageUploadSection = document.getElementById("imageUploadSection");
+    const videoUrlInput = document.getElementById("videoUrlInput");
+    const videoLocalPreviewInput = document.getElementById("videoLocalPreviewInput");
+    const imageFileInput = document.getElementById("imageFileInput");
     const fastCompressCheckbox = document.getElementById("fastCompressCheckbox");
-    const rtdbFallbackCheckbox = document.getElementById("rtdbFallbackCheckbox");
     const publishTypeSelect = document.getElementById("publishTypeSelect");
     const scheduleDateTimeInput = document.getElementById("scheduleDateTimeInput");
-    const mediaFileInput = document.getElementById("mediaFileInput");
     const imagePreview = document.getElementById("imagePreview");
     const videoPreview = document.getElementById("videoPreview");
-    const uploadProgressWrap = document.getElementById("uploadProgressWrap");
-    const uploadProgressBar = document.getElementById("uploadProgressBar");
     const statusMessage = document.getElementById("statusMessage");
 
     let listenersStarted = false;
@@ -368,6 +378,8 @@
     let latestPostsMap = {};
     let latestPostedHistoryMap = {};
     let currentPreviewBlobUrl = null;
+    let selectedLocalVideoMeta = null;
+    let editingPageKey = null;
 
     function escapeHtml(str) {
       return String(str ?? "")
@@ -378,6 +390,27 @@
         .replace(/'/g, "&#39;");
     }
 
+    function resetPageForm() {
+      editingPageKey = null;
+      pageNameInput.value = "";
+      pageIdInput.value = "";
+      pageTokenInput.value = "";
+      addPageBtn.textContent = "+ Save Facebook Page";
+      cancelEditPageBtn.classList.add("hidden");
+    }
+
+    function startEditingPage(key, page) {
+      editingPageKey = key;
+      pageNameInput.value = page.pageName || "";
+      pageIdInput.value = page.fbPageId || "";
+      pageTokenInput.value = page.accessToken || "";
+      addPageBtn.textContent = "Save Page Changes";
+      cancelEditPageBtn.classList.remove("hidden");
+      pageNameInput.focus();
+    }
+
+    cancelEditPageBtn.addEventListener("click", resetPageForm);
+
     function clearMediaPreview() {
       if (currentPreviewBlobUrl) {
         URL.revokeObjectURL(currentPreviewBlobUrl);
@@ -387,6 +420,7 @@
       videoPreview.style.display = "none";
       imagePreview.removeAttribute("src");
       videoPreview.removeAttribute("src");
+      selectedLocalVideoMeta = null;
     }
 
     const savedGhToken = localStorage.getItem(GH_TOKEN_STORAGE_KEY);
@@ -490,11 +524,11 @@
     document.getElementById("rerunWorkflowBtn").addEventListener("click", (e) => handleWorkflowRunClick(e.currentTarget));
     document.getElementById("triggerNowBtn").addEventListener("click", (e) => handleWorkflowRunClick(e.currentTarget));
 
-    async function optimizeImageIfNeeded(file, maxDim = 1440, quality = 0.8) {
+    async function optimizeImageIfNeeded(file, maxDim = 1280, quality = 0.75) {
       if (!fastCompressCheckbox.checked || !file.type.startsWith("image/")) {
         return file;
       }
-      if (file.size < 350 * 1024) return file;
+      if (file.size < 250 * 1024) return file;
 
       try {
         const bitmap = await createImageBitmap(file);
@@ -537,94 +571,6 @@
       });
     }
 
-    function uploadMediaToStorage(file, userId) {
-      return new Promise((resolve, reject) => {
-        const isVideo = file.type.startsWith("video/");
-        const stallTimeoutMs = isVideo ? VIDEO_UPLOAD_STALL_TIMEOUT_MS : IMAGE_UPLOAD_STALL_TIMEOUT_MS;
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path = `mediaUploads/${userId}/${Date.now()}_${safeName}`;
-        const fileRef = storageRef(storage, path);
-
-        uploadProgressWrap.style.display = "block";
-        uploadProgressBar.style.width = "0%";
-        statusMessage.style.color = "#1877f2";
-        statusMessage.textContent = `Uploading ${isVideo ? "video" : "image"} to Firebase Storage: 0%`;
-
-        let settled = false;
-        let lastBytes = 0;
-        let stallTimer = null;
-
-        const resetStallTimer = () => {
-          clearTimeout(stallTimer);
-          stallTimer = setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            try { task.cancel(); } catch {}
-            uploadProgressWrap.style.display = "none";
-            reject(
-              new Error(
-                `Storage upload stalled at ${lastBytes === 0 ? "0%" : "in progress"} (${stallTimeoutMs / 1000}s).`
-              )
-            );
-          }, stallTimeoutMs);
-        };
-
-        const task = uploadBytesResumable(fileRef, file, { contentType: file.type });
-        resetStallTimer();
-
-        task.on(
-          "state_changed",
-          (snap) => {
-            if (settled) return;
-            if (snap.bytesTransferred > lastBytes) {
-              lastBytes = snap.bytesTransferred;
-              resetStallTimer();
-            }
-            const pct = snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0;
-            uploadProgressBar.style.width = `${pct}%`;
-            statusMessage.textContent = `Uploading ${isVideo ? "video" : "image"} to Firebase Storage: ${pct}%`;
-          },
-          (err) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(stallTimer);
-            uploadProgressWrap.style.display = "none";
-            reject(new Error(`${err.code || "storage/error"}: ${err.message}`));
-          },
-          async () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(stallTimer);
-            try {
-              statusMessage.textContent = "Upload complete! Saving to Realtime Database...";
-              const downloadUrl = await getDownloadURL(task.snapshot.ref);
-              uploadProgressWrap.style.display = "none";
-              resolve({ storagePath: path, mediaUrl: downloadUrl });
-            } catch (err) {
-              uploadProgressWrap.style.display = "none";
-              reject(err);
-            }
-          }
-        );
-      });
-    }
-
-    async function deleteStorageFileSafe(storagePath) {
-      if (!storagePath) return;
-      try {
-        await deleteObject(storageRef(storage, storagePath));
-      } catch (err) {
-        if (err?.code !== "storage/object-not-found") {
-          console.warn("Storage delete warning:", err.message || err);
-        }
-      }
-    }
-
-    async function deleteQueuePostAndMedia(postId, postData) {
-      await deleteStorageFileSafe(postData?.storagePath);
-      await remove(ref(db, `scheduledPosts/${postId}`));
-    }
-
     emailLoginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       loginError.textContent = "";
@@ -661,20 +607,48 @@
 
     document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
 
-    mediaFileInput.addEventListener("change", () => {
-      const file = mediaFileInput.files[0];
+    mediaModeSelect.addEventListener("change", () => {
+      clearMediaPreview();
+      imageFileInput.value = "";
+      videoLocalPreviewInput.value = "";
+      const isVideo = mediaModeSelect.value === "video";
+      videoUrlSection.classList.toggle("hidden", !isVideo);
+      imageUploadSection.classList.toggle("hidden", isVideo);
+    });
+
+    videoLocalPreviewInput.addEventListener("change", () => {
+      const file = videoLocalPreviewInput.files[0];
       clearMediaPreview();
       if (!file) return;
-
+      selectedLocalVideoMeta = {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type || "video/mp4"
+      };
       currentPreviewBlobUrl = URL.createObjectURL(file);
+      videoPreview.src = currentPreviewBlobUrl;
+      videoPreview.style.display = "block";
+    });
 
-      if (file.type.startsWith("video/")) {
-        videoPreview.src = currentPreviewBlobUrl;
-        videoPreview.style.display = "block";
-      } else if (file.type.startsWith("image/")) {
-        imagePreview.src = currentPreviewBlobUrl;
-        imagePreview.style.display = "block";
+    videoUrlInput.addEventListener("input", () => {
+      if (videoLocalPreviewInput.files[0]) return;
+      const url = videoUrlInput.value.trim();
+      if (!url) {
+        videoPreview.style.display = "none";
+        videoPreview.removeAttribute("src");
+        return;
       }
+      videoPreview.src = url;
+      videoPreview.style.display = "block";
+    });
+
+    imageFileInput.addEventListener("change", () => {
+      const file = imageFileInput.files[0];
+      clearMediaPreview();
+      if (!file) return;
+      currentPreviewBlobUrl = URL.createObjectURL(file);
+      imagePreview.src = currentPreviewBlobUrl;
+      imagePreview.style.display = "block";
     });
 
     publishTypeSelect.addEventListener("change", () => {
@@ -687,31 +661,37 @@
       });
     });
 
-    document.getElementById("addPageBtn").addEventListener("click", async () => {
-      const pageName = document.getElementById("pageNameInput").value.trim();
-      const fbPageId = document.getElementById("pageIdInput").value.trim();
-      const accessToken = document.getElementById("pageTokenInput").value.trim();
+    addPageBtn.addEventListener("click", async () => {
+      const pageName = pageNameInput.value.trim();
+      const fbPageId = pageIdInput.value.trim();
+      const accessToken = pageTokenInput.value.trim();
 
       if (!pageName || !fbPageId || !accessToken) {
         alert("Please enter Page Name, Page ID, and Access Token.");
         return;
       }
 
-      await set(push(ref(db, "fbPages")), {
-        pageName,
-        fbPageId,
-        accessToken,
-        createdAt: Date.now()
-      });
+      if (editingPageKey) {
+        await update(ref(db, `fbPages/${editingPageKey}`), {
+          pageName,
+          fbPageId,
+          accessToken,
+          updatedAt: Date.now()
+        });
+      } else {
+        await set(push(ref(db, "fbPages")), {
+          pageName,
+          fbPageId,
+          accessToken,
+          createdAt: Date.now()
+        });
+      }
 
-      document.getElementById("pageNameInput").value = "";
-      document.getElementById("pageIdInput").value = "";
-      document.getElementById("pageTokenInput").value = "";
+      resetPageForm();
     });
 
     document.getElementById("uploadAndQueueBtn").addEventListener("click", async () => {
       const btn = document.getElementById("uploadAndQueueBtn");
-      const rawFile = mediaFileInput.files[0];
       const caption = document.getElementById("captionInput").value.trim();
       const selectedPages = Array.from(document.querySelectorAll(".page-target-cb:checked")).map(
         (cb) => cb.value
@@ -720,20 +700,6 @@
 
       if (!currentUser) {
         alert("Please sign in first.");
-        return;
-      }
-      if (!rawFile) {
-        alert("Please choose an image or video to upload.");
-        return;
-      }
-      const isImage = rawFile.type.startsWith("image/");
-      const isVideo = rawFile.type.startsWith("video/");
-      if (!isImage && !isVideo) {
-        alert("Please select a valid image or video file.");
-        return;
-      }
-      if (rawFile.size > MAX_MEDIA_BYTES) {
-        alert("File exceeds the 200 MB maximum size limit.");
         return;
       }
       if (selectedPages.length === 0) {
@@ -750,54 +716,73 @@
         scheduledTime = new Date(scheduleDateTimeInput.value).getTime();
       }
 
+      const mode = mediaModeSelect.value;
       btn.disabled = true;
       statusMessage.style.color = "#1877f2";
-      statusMessage.textContent = isImage ? "Optimizing image..." : "Preparing video upload...";
 
       try {
-        const file = isImage ? await optimizeImageIfNeeded(rawFile) : rawFile;
-        let storagePath = "";
-        let mediaUrl = "";
-        let usedFallback = false;
+        let payload;
 
-        try {
-          const uploaded = await uploadMediaToStorage(file, currentUser.uid);
-          storagePath = uploaded.storagePath;
-          mediaUrl = uploaded.mediaUrl;
-        } catch (storageErr) {
-          if (isImage && rtdbFallbackCheckbox.checked && file.size <= MAX_BASE64_IMAGE_BYTES) {
-            statusMessage.textContent = "Storage stalled—saving image directly to Realtime Database...";
-            mediaUrl = await fileToDataUrl(file);
-            usedFallback = true;
-          } else {
-            throw new Error(
-              `${storageErr.message} Enable Cloud Storage in Firebase Console & allow auth write on mediaUploads/{userId}.`
-            );
+        if (mode === "video") {
+          const videoUrl = videoUrlInput.value.trim();
+          if (!videoUrl || !/^https?:\/\//i.test(videoUrl)) {
+            alert("Please enter a valid http:// or https:// video URL.");
+            return;
           }
+          statusMessage.textContent = "Saving video URL to Realtime Database...";
+
+          payload = {
+            mediaType: "video",
+            mediaUrl: videoUrl,
+            videoUrl,
+            fileName: selectedLocalVideoMeta?.fileName || videoUrl.split("/").pop()?.split("?")[0] || "video.mp4",
+            fileSize: selectedLocalVideoMeta?.fileSize || 0,
+            mimeType: selectedLocalVideoMeta?.mimeType || "video/mp4",
+            caption,
+            targetPages: selectedPages,
+            scheduledTime,
+            status: "pending",
+            createdAt: Date.now()
+          };
+        } else {
+          const rawFile = imageFileInput.files[0];
+          if (!rawFile || !rawFile.type.startsWith("image/")) {
+            alert("Please select an image file.");
+            return;
+          }
+          statusMessage.textContent = "Optimizing image for Realtime Database...";
+          const file = await optimizeImageIfNeeded(rawFile);
+
+          if (file.size > MAX_RTDB_IMAGE_BYTES) {
+            alert("Image is too large for Realtime Database (keep under ~2.5 MB).");
+            return;
+          }
+
+          const dataUrl = await fileToDataUrl(file);
+          payload = {
+            mediaType: "image",
+            mediaUrl: dataUrl,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type,
+            caption,
+            targetPages: selectedPages,
+            scheduledTime,
+            status: "pending",
+            createdAt: Date.now()
+          };
         }
 
-        await set(push(ref(db, "scheduledPosts")), {
-          mediaType: isVideo ? "video" : "image",
-          storagePath,
-          mediaUrl,
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-          caption,
-          targetPages: selectedPages,
-          scheduledTime,
-          status: "pending",
-          createdAt: Date.now()
-        });
+        await set(push(ref(db, "scheduledPosts")), payload);
 
-        mediaFileInput.value = "";
+        videoUrlInput.value = "";
+        videoLocalPreviewInput.value = "";
+        imageFileInput.value = "";
         clearMediaPreview();
         document.getElementById("captionInput").value = "";
 
         if (publishTypeSelect.value === "now") {
-          statusMessage.textContent = usedFallback
-            ? "Saved to Realtime Database (Storage fallback)! Triggering Autoposter..."
-            : "Saved to Realtime Database! Triggering Autoposter workflow...";
+          statusMessage.textContent = "Saved to Realtime Database! Triggering Autoposter workflow...";
           try {
             await triggerWorkflowDispatch();
           } catch (dispatchErr) {
@@ -825,11 +810,11 @@
       const btn = document.getElementById("deleteAllPostedBtn");
       btn.disabled = true;
       try {
-        for (const [postId, post] of postedEntries) {
-          await deleteQueuePostAndMedia(postId, post);
+        for (const [postId] of postedEntries) {
+          await remove(ref(db, `scheduledPosts/${postId}`));
         }
         statusMessage.style.color = "#155724";
-        statusMessage.textContent = `Deleted ${postedEntries.length} posted item(s) and their storage files.`;
+        statusMessage.textContent = `Deleted ${postedEntries.length} posted item(s) from Realtime Database.`;
       } catch (err) {
         statusMessage.style.color = "#e41e3f";
         statusMessage.textContent = "Error deleting posted items: " + err.message;
@@ -870,7 +855,7 @@
         row.className = "list-item";
         const timeText = new Date(post.scheduledTime).toLocaleString();
         const isVideo = post.mediaType === "video" || post.mimeType?.startsWith("video/");
-        const safeSrc = escapeHtml(post.mediaUrl || post.imageUrl || "");
+        const safeSrc = escapeHtml(post.mediaUrl || "");
         const thumbHtml = isVideo
           ? `<div class="thumb">VIDEO</div>`
           : `<img src="${safeSrc}" class="thumb" alt="Post" />`;
@@ -882,7 +867,7 @@
             ${thumbHtml}
             <div>
               <strong>${escapeHtml(post.caption || "(No caption)")}</strong><br />
-              <small>${isVideo ? "Video" : "Image"}${escapeHtml(sizeMb)} • ${escapeHtml(timeText)} • Pages: ${escapeHtml(formatPageNames(post.targetPages))}</small>
+              <small>${isVideo ? "Video URL" : "Image"}${escapeHtml(sizeMb)} • ${escapeHtml(timeText)} • Pages: ${escapeHtml(formatPageNames(post.targetPages))}</small>
               ${errSummary ? `<span class="error-text">${escapeHtml(errSummary)}</span>` : ""}
             </div>
           </div>
@@ -891,7 +876,7 @@
             <button type="button" class="btn-danger" data-del="${escapeHtml(postId)}">Delete</button>
           </div>
         `;
-        row.querySelector("[data-del]").onclick = () => deleteQueuePostAndMedia(postId, post);
+        row.querySelector("[data-del]").onclick = () => remove(ref(db, `scheduledPosts/${postId}`));
         postsListContainer.appendChild(row);
       });
     }
@@ -947,7 +932,7 @@
         row.querySelector("[data-remove-posted]").onclick = async () => {
           try {
             if (item.source === "queue") {
-              await deleteQueuePostAndMedia(item.id, latestPostsMap[item.id]);
+              await remove(ref(db, `scheduledPosts/${item.id}`));
             } else {
               await remove(ref(db, `postedHistory/${item.id}`));
             }
@@ -991,12 +976,30 @@
               <small>Page ID: ${escapeHtml(page.fbPageId)}</small>
             </div>
           `;
+
+          const actions = document.createElement("div");
+          actions.className = "row-actions";
+
+          const editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.className = "btn-edit";
+          editBtn.textContent = "Edit";
+          editBtn.onclick = () => startEditingPage(key, page);
+
           const delBtn = document.createElement("button");
           delBtn.type = "button";
           delBtn.className = "btn-danger";
           delBtn.textContent = "Delete";
-          delBtn.onclick = () => remove(ref(db, `fbPages/${key}`));
-          row.appendChild(delBtn);
+          delBtn.onclick = async () => {
+            if (editingPageKey === key) {
+              resetPageForm();
+            }
+            await remove(ref(db, `fbPages/${key}`));
+          };
+
+          actions.appendChild(editBtn);
+          actions.appendChild(delBtn);
+          row.appendChild(actions);
           pagesListContainer.appendChild(row);
 
           const label = document.createElement("label");
