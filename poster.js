@@ -3,7 +3,7 @@ import admin from "firebase-admin";
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 const databaseURL = process.env.FIREBASE_DATABASE_URL;
 const storageBucketName =
-  process.env.FIREBASE_STORAGE_BUCKET || serviceAccount.project_id + ".firebasestorage.app";
+  process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`;
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
