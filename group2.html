@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1 Page → Share to Up to 10 Groups (Facebook Lite Style)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f2f5;
+      color: #1c1e21;
+      margin: 0;
+      padding: 16px 12px 90px;
+    }
+    .container { max-width: 640px; margin: 0 auto; }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 10px; color: #1877f2; }
+    h2 { font-size: 1.05rem; margin: 0 0 10px; }
+    input, textarea, select, button {
+      width: 100%;
+      padding: 11px 12px;
+      margin: 6px 0 12px;
+      border: 1px solid #ccd0d5;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    button {
+      background: #1877f2;
+      color: #fff;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #166fe5; }
+    button:disabled { background: #9cb4d8; cursor: not-allowed; }
+    button.btn-secondary {
+      background: #e4e6eb;
+      color: #050505;
+      width: auto;
+      padding: 8px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    button.btn-success {
+      background: #1f8b4c;
+      width: auto;
+      padding: 8px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    button.btn-danger {
+      background: #e41e3f;
+      width: auto;
+      padding: 6px 10px;
+      margin: 0;
+      font-size: 12px;
+    }
+    button.btn-end {
+      background: #e41e3f;
+      color: #fff;
+      width: auto;
+      padding: 8px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 10px;
+    }
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    /* FACEBOOK LITE "ADD GROUPS" UI */
+    .fb-lite-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .fb-lite-search-wrap {
+      position: relative;
+      margin-bottom: 8px;
+    }
+    .fb-lite-search {
+      background: #f0f2f5;
+      border: none;
+      border-radius: 999px;
+      padding: 11px 40px 11px 16px;
+      font-size: 15px;
+      margin: 0;
+    }
+    .fb-lite-search-icon {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #65676b;
+      font-size: 16px;
+      pointer-events: none;
+    }
+    .fb-lite-subtext {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #65676b;
+      font-size: 13.5px;
+      margin: 8px 0 10px;
+    }
+    .fb-lite-list {
+      max-height: 390px;
+      overflow-y: auto;
+    }
+    .fb-lite-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 4px;
+      border-bottom: 1px solid #f0f2f5;
+      cursor: pointer;
+      gap: 12px;
+    }
+    .fb-lite-row:last-child { border-bottom: none; }
+    .fb-lite-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      flex: 1;
+    }
+    .fb-lite-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #1877f2, #42b72a);
+      color: #fff;
+      font-weight: 700;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      text-transform: uppercase;
+    }
+    .fb-lite-name {
+      font-size: 15px;
+      font-weight: 500;
+      color: #050505;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .fb-lite-url {
+      font-size: 12px;
+      color: #65676b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* Blue rounded square checkbox like Facebook Lite */
+    .fb-lite-checkbox {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 22px;
+      height: 22px;
+      margin: 0;
+      border: 2px solid #bcc0c4;
+      border-radius: 6px;
+      background: #fff;
+      display: grid;
+      place-content: center;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .fb-lite-checkbox:checked {
+      background: #1877f2;
+      border-color: #1877f2;
+    }
+    .fb-lite-checkbox:checked::after {
+      content: "✓";
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    /* Sticky bottom Save + Start bar */
+    .sticky-save-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #fff;
+      border-top: 1px solid #dadde1;
+      padding: 10px 14px;
+      z-index: 50;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
+    }
+    .sticky-save-inner {
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .sticky-save-btn {
+      margin: 0;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 15px;
+      background: #1877f2;
+      flex: 2;
+    }
+    .sticky-start-btn {
+      margin: 0;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 15px;
+      background: #1f8b4c;
+      flex: 1;
+    }
+
+    .preview-media {
+      max-width: 100%;
+      max-height: 220px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .launcher-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f7f8fa;
+      border: 1px solid #e4e6eb;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .launcher-item.is-opened {
+      background: #eef0f3;
+      opacity: 0.75;
+    }
+    .done-tag {
+      background: #d4edda;
+      color: #155724;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .hidden { display: none !important; }
+    small { color: #65676b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Add Groups &amp; Share (Facebook Lite Style)</h1>
+
+    <!-- LOGIN CARD -->
+    <div id="loginCard" class="card">
+      <h2>Admin Sign In</h2>
+      <form id="emailLoginForm">
+        <input type="email" id="emailInput" value="firatech2541@gmail.com" placeholder="Admin Email" required />
+        <input type="password" id="passwordInput" placeholder="Password" required />
+        <button type="submit" id="emailLoginBtn">Sign In</button>
+      </form>
+      <p id="loginError" style="color:#e41e3f; margin:6px 0 0;"></p>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="appSection" class="hidden">
+      <div class="topbar">
+        <small id="userLabel"></small>
+        <button type="button" id="logoutBtn" class="btn-secondary">Sign Out</button>
+      </div>
+
+      <!-- STEP 1: SELECT 1 PAGE + LINK OR PHOTO -->
+      <div class="card">
+        <h2>1. Choose 1 Page &amp; Link or Photo</h2>
+
+        <label><strong>Select 1 Page</strong></label>
+        <select id="singlePageSelect">
+          <option value="">Loading pages...</option>
+        </select>
+
+        <label><strong>Share Type</strong></label>
+        <select id="shareKindSelect">
+          <option value="link">Link</option>
+          <option value="photo">Photo</option>
+        </select>
+
+        <div id="linkInputBlock">
+          <input type="url" id="linkUrlInput" placeholder="Paste link (https://...)" />
+        </div>
+
+        <div id="photoInputBlock" class="hidden">
+          <input type="file" id="photoFileInput" accept="image/*" />
+          <img id="photoPreview" class="preview-media" alt="Photo Preview" />
+        </div>
+
+        <textarea id="captionInput" rows="2" placeholder="Write caption..."></textarea>
+
+        <div class="row-actions">
+          <button type="button" id="nativeShareBtn" class="btn-secondary">Share to Facebook Lite App</button>
+          <button type="button" id="copyPayloadBtn" class="btn-secondary">Copy Caption / Link</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: FACEBOOK LITE "ADD GROUPS" PICKER -->
+      <div class="card">
+        <div class="fb-lite-header">
+          <h2 style="margin:0;">Add groups</h2>
+          <button type="button" id="toggleNewGroupFormBtn" class="btn-secondary">+ Add New Group</button>
+        </div>
+
+        <!-- Quick Add Group Drawer -->
+        <div id="newGroupDrawer" class="hidden" style="background:#f7f8fa; padding:12px; border-radius:10px; margin-bottom:12px;">
+          <input type="text" id="groupNameInput" placeholder="Group Name (e.g. Urjii jaalalalaa)" />
+          <input type="text" id="groupUrlOrIdInput" placeholder="Group Link or ID (https://www.facebook.com/groups/...)" />
+          <button type="button" id="addGroupBtn" style="margin-bottom:0;">Save Group to Database</button>
+        </div>
+
+        <!-- Search Pill -->
+        <div class="fb-lite-search-wrap">
+          <input type="text" id="groupSearchInput" class="fb-lite-search" placeholder="Search" />
+          <span class="fb-lite-search-icon">🔍</span>
+        </div>
+
+        <!-- "Share with up to 10 groups that you're in." -->
+        <div class="fb-lite-subtext">
+          <span>Share with up to 10 groups that you're in. (<strong id="selectedCountLabel">0</strong>/10)</span>
+          <button type="button" id="selectTop10Btn" class="btn-secondary" style="padding:4px 10px; font-size:12px;">Mark 10</button>
+        </div>
+
+        <div id="fbLiteGroupsList" class="fb-lite-list">
+          <small>Loading groups from database...</small>
+        </div>
+      </div>
+
+      <!-- STEP 3: SAVED BATCH LAUNCHER (SHOWN WHEN START IS CLICKED) -->
+      <div id="launcherCard" class="card hidden">
+        <div class="topbar" style="margin-bottom:8px;">
+          <h2 style="margin:0;">Saved Group Batch (<span id="batchCountLabel">0</span>)</h2>
+          <div class="row-actions">
+            <button type="button" id="openNextGroupBtn" class="btn-success">Open Next</button>
+            <button type="button" id="endBatchBtn" class="btn-end">End / Close</button>
+          </div>
+        </div>
+        <small>Redirects directly to each group without copying anything. Each <strong>Open</strong> button closes after one click until you tap <strong>End / Close</strong> and <strong>Start</strong> again.</small>
+        <div id="launcherListContainer" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STICKY BOTTOM SAVE & START BAR -->
+  <div id="stickySaveBar" class="sticky-save-bar hidden">
+    <div class="sticky-save-inner">
+      <button type="button" id="saveSelectedGroupsBtn" class="sticky-save-btn">
+        Save (<span id="stickyCountLabel">0</span>/10)
+      </button>
+      <button type="button" id="startBatchBtn" class="sticky-start-btn">
+        Start (<span id="savedBatchCountLabel">0</span>)
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getAuth,
+      signInWithEmailAndPassword,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      getDatabase,
+      ref,
+      push,
+      set,
+      get,
+      remove,
+      onValue
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLpsaHZAkQaItuLnLN1d4DEj735_3Zho0",
+      authDomain: "facebook-d49ac.firebaseapp.com",
+      databaseURL: "https://facebook-d49ac-default-rtdb.firebaseio.com",
+      projectId: "facebook-d49ac",
+      storageBucket: "facebook-d49ac.firebasestorage.app",
+      messagingSenderId: "574829461616",
+      appId: "1:574829461616:web:9a6a1cad912da293d4f4b5",
+      measurementId: "G-E8RFDP367Z"
+    };
+
+    const MAX_GROUPS_PER_BATCH = 10;
+    const SAVED_BATCH_STORAGE_KEY = "fb_lite_saved_group_batch_v1";
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    const loginCard = document.getElementById("loginCard");
+    const appSection = document.getElementById("appSection");
+    const stickySaveBar = document.getElementById("stickySaveBar");
+    const loginError = document.getElementById("loginError");
+    const userLabel = document.getElementById("userLabel");
+    const emailLoginForm = document.getElementById("emailLoginForm");
+    const emailLoginBtn = document.getElementById("emailLoginBtn");
+
+    const singlePageSelect = document.getElementById("singlePageSelect");
+    const shareKindSelect = document.getElementById("shareKindSelect");
+    const linkInputBlock = document.getElementById("linkInputBlock");
+    const photoInputBlock = document.getElementById("photoInputBlock");
+    const linkUrlInput = document.getElementById("linkUrlInput");
+    const photoFileInput = document.getElementById("photoFileInput");
+    const photoPreview = document.getElementById("photoPreview");
+    const captionInput = document.getElementById("captionInput");
+
+    const toggleNewGroupFormBtn = document.getElementById("toggleNewGroupFormBtn");
+    const newGroupDrawer = document.getElementById("newGroupDrawer");
+    const groupNameInput = document.getElementById("groupNameInput");
+    const groupUrlOrIdInput = document.getElementById("groupUrlOrIdInput");
+    const addGroupBtn = document.getElementById("addGroupBtn");
+
+    const groupSearchInput = document.getElementById("groupSearchInput");
+    const selectTop10Btn = document.getElementById("selectTop10Btn");
+    const fbLiteGroupsList = document.getElementById("fbLiteGroupsList");
+    const selectedCountLabel = document.getElementById("selectedCountLabel");
+    const stickyCountLabel = document.getElementById("stickyCountLabel");
+    const savedBatchCountLabel = document.getElementById("savedBatchCountLabel");
+    const saveSelectedGroupsBtn = document.getElementById("saveSelectedGroupsBtn");
+    const startBatchBtn = document.getElementById("startBatchBtn");
+
+    const launcherCard = document.getElementById("launcherCard");
+    const batchCountLabel = document.getElementById("batchCountLabel");
+    const launcherListContainer = document.getElementById("launcherListContainer");
+    const openNextGroupBtn = document.getElementById("openNextGroupBtn");
+    const endBatchBtn = document.getElementById("endBatchBtn");
+
+    let listenersAttached = false;
+    let latestPagesMap = {};
+    let latestGroupsMap = {};
+    let selectedGroupKeys = new Set();
+    let savedBatchKeys = [];
+    let activeShareItems = [];
+    let isSessionActive = false;
+    let currentPhotoDataUrl = "";
+    let currentPhotoFile = null;
+
+    function loadLocalSavedBatch() {
+      try {
+        const raw = localStorage.getItem(SAVED_BATCH_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function persistLocalSavedBatch(keys) {
+      try {
+        localStorage.setItem(SAVED_BATCH_STORAGE_KEY, JSON.stringify(keys));
+      } catch {}
+    }
+
+    savedBatchKeys = loadLocalSavedBatch();
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeGroupUrl(rawInput) {
+      const val = (rawInput || "").trim();
+      if (!val) return "";
+      if (/^https?:\/\//i.test(val)) return val;
+      const cleanId = val.replace(/^@/, "").replace(/^\/+|\/+$/g, "");
+      return `https://www.facebook.com/groups/${encodeURIComponent(cleanId)}`;
+    }
+
+    function getInitials(name) {
+      const words = String(name || "G").trim().split(/\s+/);
+      return ((words[0]?.[0] || "") + (words[1]?.[0] || "")).toUpperCase() || "G";
+    }
+
+    toggleNewGroupFormBtn.addEventListener("click", () => {
+      newGroupDrawer.classList.toggle("hidden");
+    });
+
+    shareKindSelect.addEventListener("change", () => {
+      const isPhoto = shareKindSelect.value === "photo";
+      linkInputBlock.classList.toggle("hidden", isPhoto);
+      photoInputBlock.classList.toggle("hidden", !isPhoto);
+    });
+
+    photoFileInput.addEventListener("change", () => {
+      const file = photoFileInput.files[0];
+      currentPhotoFile = file || null;
+      if (!file) {
+        currentPhotoDataUrl = "";
+        photoPreview.style.display = "none";
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        currentPhotoDataUrl = String(reader.result || "");
+        photoPreview.src = currentPhotoDataUrl;
+        photoPreview.style.display = "block";
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function buildPayloadText() {
+      const pageKey = singlePageSelect.value;
+      const pageName = latestPagesMap[pageKey]?.pageName || "";
+      const cap = (captionInput.value || "").trim();
+      const kind = shareKindSelect.value;
+      const link = (linkUrlInput.value || "").trim();
+      const header = pageName ? `Via ${pageName}:` : "";
+      const body = kind === "link" ? [cap, link].filter(Boolean).join("\n\n") : cap;
+      return [header, body].filter(Boolean).join("\n");
+    }
+
+    async function copyTextSafe(text) {
+      if (!text) return false;
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        return ok;
+      }
+    }
+
+    document.getElementById("copyPayloadBtn").addEventListener("click", async () => {
+      const txt = buildPayloadText();
+      if (!txt) return alert("Enter a caption or link first.");
+      await copyTextSafe(txt);
+      alert("Caption/link copied!");
+    });
+
+    // Opens Android native share sheet without copying anything automatically
+    document.getElementById("nativeShareBtn").addEventListener("click", async () => {
+      const text = buildPayloadText();
+      const kind = shareKindSelect.value;
+      const link = (linkUrlInput.value || "").trim();
+
+      if (navigator.share) {
+        try {
+          if (kind === "photo" && currentPhotoFile && navigator.canShare?.({ files: [currentPhotoFile] })) {
+            await navigator.share({
+              text,
+              files: [currentPhotoFile]
+            });
+            return;
+          }
+          await navigator.share({
+            text,
+            url: kind === "link" && link ? link : undefined
+          });
+          return;
+        } catch (err) {
+          if (err.name === "AbortError") return;
+        }
+      }
+      alert("Native share is not supported on this browser.");
+    });
+
+    function updateCounters() {
+      const count = Array.from(selectedGroupKeys).filter((k) => Boolean(latestGroupsMap[k])).length;
+      selectedCountLabel.textContent = String(count);
+      stickyCountLabel.textContent = String(count);
+
+      const validSavedCount = savedBatchKeys.filter((k) => Boolean(latestGroupsMap[k])).length;
+      savedBatchCountLabel.textContent = String(validSavedCount);
+    }
+
+    function renderFbLiteGroupsList() {
+      const q = (groupSearchInput.value || "").trim().toLowerCase();
+      const entries = Object.entries(latestGroupsMap).filter(([, g]) => {
+        if (!q) return true;
+        return (
+          String(g.groupName || "").toLowerCase().includes(q) ||
+          String(g.groupUrl || "").toLowerCase().includes(q)
+        );
+      });
+
+      fbLiteGroupsList.innerHTML = "";
+      if (entries.length === 0) {
+        fbLiteGroupsList.innerHTML = "<small>No groups found. Tap '+ Add New Group' to save groups.</small>";
+        updateCounters();
+        return;
+      }
+
+      entries.forEach(([key, grp]) => {
+        const row = document.createElement("div");
+        row.className = "fb-lite-row";
+
+        const left = document.createElement("div");
+        left.className = "fb-lite-left";
+
+        const avatar = document.createElement("div");
+        avatar.className = "fb-lite-avatar";
+        avatar.textContent = getInitials(grp.groupName || key);
+
+        const info = document.createElement("div");
+        info.style.minWidth = "0";
+        info.innerHTML = `
+          <div class="fb-lite-name">${escapeHtml(grp.groupName || key)}</div>
+          <div class="fb-lite-url">${escapeHtml(grp.groupUrl || "")}</div>
+        `;
+
+        left.appendChild(avatar);
+        left.appendChild(info);
+
+        const right = document.createElement("div");
+        right.style.display = "flex";
+        right.style.alignItems = "center";
+        right.style.gap = "10px";
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-danger";
+        delBtn.textContent = "×";
+        delBtn.title = "Delete group";
+        delBtn.onclick = async (e) => {
+          e.stopPropagation();
+          selectedGroupKeys.delete(key);
+          savedBatchKeys = savedBatchKeys.filter((k) => k !== key);
+          persistLocalSavedBatch(savedBatchKeys);
+          await remove(ref(db, `fbGroups/${key}`));
+        };
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "fb-lite-checkbox";
+        cb.checked = selectedGroupKeys.has(key);
+
+        const toggleSelection = () => {
+          if (selectedGroupKeys.has(key)) {
+            selectedGroupKeys.delete(key);
+            cb.checked = false;
+          } else {
+            if (selectedGroupKeys.size >= MAX_GROUPS_PER_BATCH) {
+              alert("You can mark up to 10 groups at once (same limit as Facebook Lite).");
+              cb.checked = false;
+              return;
+            }
+            selectedGroupKeys.add(key);
+            cb.checked = true;
+          }
+          updateCounters();
+        };
+
+        cb.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (cb.checked) {
+            if (selectedGroupKeys.size >= MAX_GROUPS_PER_BATCH) {
+              cb.checked = false;
+              alert("You can mark up to 10 groups at once (same limit as Facebook Lite).");
+              return;
+            }
+            selectedGroupKeys.add(key);
+          } else {
+            selectedGroupKeys.delete(key);
+          }
+          updateCounters();
+        });
+
+        row.addEventListener("click", toggleSelection);
+
+        right.appendChild(delBtn);
+        right.appendChild(cb);
+        row.appendChild(left);
+        row.appendChild(right);
+        fbLiteGroupsList.appendChild(row);
+      });
+
+      updateCounters();
+    }
+
+    groupSearchInput.addEventListener("input", renderFbLiteGroupsList);
+
+    selectTop10Btn.addEventListener("click", () => {
+      const q = (groupSearchInput.value || "").trim().toLowerCase();
+      const matchingKeys = Object.entries(latestGroupsMap)
+        .filter(([, g]) => !q || String(g.groupName || "").toLowerCase().includes(q))
+        .map(([k]) => k);
+
+      if (selectedGroupKeys.size > 0) {
+        selectedGroupKeys.clear();
+      } else {
+        matchingKeys.slice(0, MAX_GROUPS_PER_BATCH).forEach((k) => selectedGroupKeys.add(k));
+      }
+      renderFbLiteGroupsList();
+    });
+
+    addGroupBtn.addEventListener("click", async () => {
+      if (!auth.currentUser) return alert("Sign in first.");
+      const groupName = groupNameInput.value.trim();
+      const groupUrl = normalizeGroupUrl(groupUrlOrIdInput.value);
+      if (!groupName || !groupUrl) return alert("Enter Group Name and Group Link or ID.");
+
+      addGroupBtn.disabled = true;
+      try {
+        const newRef = push(ref(db, "fbGroups"));
+        await set(newRef, { groupName, groupUrl, createdAt: Date.now() });
+        if (selectedGroupKeys.size < MAX_GROUPS_PER_BATCH) {
+          selectedGroupKeys.add(newRef.key);
+        }
+        groupNameInput.value = "";
+        groupUrlOrIdInput.value = "";
+        newGroupDrawer.classList.add("hidden");
+      } finally {
+        addGroupBtn.disabled = false;
+      }
+    });
+
+    function openGroupItemOnce(item) {
+      if (item.opened) return;
+      item.opened = true;
+      renderLauncher();
+      // Redirects directly to the group URL without copying anything
+      window.open(item.groupUrl, "_blank", "noopener,noreferrer");
+    }
+
+    function renderLauncher() {
+      launcherListContainer.innerHTML = "";
+      if (!isSessionActive || activeShareItems.length === 0) {
+        launcherCard.classList.add("hidden");
+        return;
+      }
+      launcherCard.classList.remove("hidden");
+      batchCountLabel.textContent = String(activeShareItems.length);
+
+      const hasRemaining = activeShareItems.some((i) => !i.opened);
+      openNextGroupBtn.disabled = !hasRemaining;
+
+      activeShareItems.forEach((item, idx) => {
+        const row = document.createElement("div");
+        row.className = "launcher-item" + (item.opened ? " is-opened" : "");
+
+        const left = document.createElement("div");
+        left.innerHTML = `<strong>${idx + 1}. ${escapeHtml(item.groupName)}</strong><br/><small>${escapeHtml(item.groupUrl)}</small>`;
+
+        const right = document.createElement("div");
+        right.className = "row-actions";
+
+        if (item.opened) {
+          const tag = document.createElement("span");
+          tag.className = "done-tag";
+          tag.textContent = "OPENED";
+          right.appendChild(tag);
+        }
+
+        const openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "btn-success";
+        openBtn.textContent = item.opened ? "Closed" : "Open";
+        openBtn.disabled = item.opened;
+        openBtn.onclick = () => openGroupItemOnce(item);
+
+        right.appendChild(openBtn);
+        row.appendChild(left);
+        row.appendChild(right);
+        launcherListContainer.appendChild(row);
+      });
+    }
+
+    // Open Next Group once, then close its Open button
+    openNextGroupBtn.addEventListener("click", () => {
+      const next = activeShareItems.find((i) => !i.opened);
+      if (!next) return alert("All groups in this session have already been opened. Tap End / Close and Start again to reset.");
+      openGroupItemOnce(next);
+    });
+
+    // End / Close session: hides list and resets all Open buttons until Start is clicked again
+    endBatchBtn.addEventListener("click", () => {
+      isSessionActive = false;
+      activeShareItems = [];
+      renderLauncher();
+    });
+
+    // Save selected groups (without copying anything)
+    saveSelectedGroupsBtn.addEventListener("click", async () => {
+      if (!auth.currentUser) return alert("Sign in first.");
+      const targetKeys = Object.keys(latestGroupsMap).filter((k) => selectedGroupKeys.has(k));
+      if (targetKeys.length === 0) return alert("Mark at least 1 group first.");
+
+      const pageKey = singlePageSelect.value || "default";
+      const pageName = latestPagesMap[pageKey]?.pageName || pageKey;
+      const shareKind = shareKindSelect.value;
+      const linkUrl = (linkUrlInput.value || "").trim();
+      const caption = (captionInput.value || "").trim();
+
+      saveSelectedGroupsBtn.disabled = true;
+      try {
+        await set(push(ref(db, "pageGroupShares")), {
+          pageKey,
+          fbPageId: latestPagesMap[pageKey]?.fbPageId || "",
+          pageName,
+          shareKind,
+          linkUrl: shareKind === "link" ? linkUrl : "",
+          photoDataUrl: shareKind === "photo" ? currentPhotoDataUrl : "",
+          caption,
+          targetGroups: targetKeys,
+          groupNames: targetKeys.map((k) => latestGroupsMap[k]?.groupName || k),
+          createdAt: Date.now()
+        });
+
+        await set(ref(db, `savedGroupBatches/${auth.currentUser.uid}`), {
+          targetGroups: targetKeys,
+          updatedAt: Date.now()
+        });
+
+        savedBatchKeys = [...targetKeys];
+        persistLocalSavedBatch(savedBatchKeys);
+        updateCounters();
+        alert(`Saved ${savedBatchKeys.length} group(s). Tap "Start" to open the saved list.`);
+      } finally {
+        saveSelectedGroupsBtn.disabled = false;
+      }
+    });
+
+    // Start button: loads all saved groups with fresh enabled Open buttons
+    startBatchBtn.addEventListener("click", () => {
+      const keysToUse = savedBatchKeys.filter((k) => Boolean(latestGroupsMap[k]));
+      if (keysToUse.length === 0) {
+        return alert("No saved groups yet. Mark up to 10 groups and tap Save first.");
+      }
+
+      activeShareItems = keysToUse.map((k) => ({
+        key: k,
+        groupName: latestGroupsMap[k]?.groupName || k,
+        groupUrl: latestGroupsMap[k]?.groupUrl || "",
+        opened: false
+      }));
+
+      isSessionActive = true;
+      renderLauncher();
+      launcherCard.scrollIntoView({ behavior: "smooth" });
+    });
+
+    function startListeners(uid) {
+      onValue(ref(db, "fbPages"), (snap) => {
+        latestPagesMap = snap.val() || {};
+        const prev = singlePageSelect.value;
+        singlePageSelect.innerHTML = "";
+        const entries = Object.entries(latestPagesMap);
+        if (entries.length === 0) {
+          singlePageSelect.innerHTML = '<option value="">No pages in fbPages</option>';
+          return;
+        }
+        entries.forEach(([key, p]) => {
+          const opt = document.createElement("option");
+          opt.value = key;
+          opt.textContent = `${p.pageName || key} (${p.fbPageId || key})`;
+          singlePageSelect.appendChild(opt);
+        });
+        if (prev && latestPagesMap[prev]) singlePageSelect.value = prev;
+      });
+
+      onValue(ref(db, "fbGroups"), (snap) => {
+        latestGroupsMap = snap.exists() ? snap.val() : {};
+        selectedGroupKeys = new Set(
+          Array.from(selectedGroupKeys).filter((k) => Boolean(latestGroupsMap[k]))
+        );
+        renderFbLiteGroupsList();
+      });
+
+      if (uid) {
+        onValue(ref(db, `savedGroupBatches/${uid}/targetGroups`), (snap) => {
+          if (snap.exists() && Array.isArray(snap.val())) {
+            savedBatchKeys = snap.val();
+            persistLocalSavedBatch(savedBatchKeys);
+            updateCounters();
+          }
+        });
+      }
+    }
+
+    emailLoginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.textContent = "";
+      emailLoginBtn.disabled = true;
+      try {
+        await signInWithEmailAndPassword(
+          auth,
+          document.getElementById("emailInput").value.trim(),
+          document.getElementById("passwordInput").value
+        );
+      } catch (err) {
+        loginError.textContent = err.message;
+      } finally {
+        emailLoginBtn.disabled = false;
+      }
+    });
+
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        loginCard.classList.add("hidden");
+        appSection.classList.remove("hidden");
+        stickySaveBar.classList.remove("hidden");
+        userLabel.innerHTML = `Signed in as <strong>${escapeHtml(user.email)}</strong>`;
+        if (!listenersAttached) {
+          listenersAttached = true;
+          startListeners(user.uid);
+        }
+        const snap = await get(ref(db, "fbGroups"));
+        if (snap.exists()) {
+          latestGroupsMap = snap.val();
+          renderFbLiteGroupsList();
+        }
+      } else {
+        loginCard.classList.remove("hidden");
+        appSection.classList.add("hidden");
+        stickySaveBar.classList.add("hidden");
+      }
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
+  </script>
+</body>
+</html>
