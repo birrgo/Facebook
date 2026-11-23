@@ -26,6 +26,38 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isTextPost(post, mediaType) {
+  return (
+    mediaType === "text" ||
+    mediaType === "text_only" ||
+    post.postType === "text" ||
+    post.postType === "text_only" ||
+    post.mimeType === "text/plain"
+  );
+}
+
+function detectMediaType(post) {
+  if (
+    post.mediaType === "text" ||
+    post.mediaType === "text_only" ||
+    post.postType === "text" ||
+    post.postType === "text_only" ||
+    post.mimeType === "text/plain"
+  ) {
+    return "text";
+  }
+  if (post.mediaType === "video" || post.mimeType?.startsWith("video/")) {
+    return "video";
+  }
+  if (post.mediaType === "image" || post.mimeType?.startsWith("image/")) {
+    return "image";
+  }
+  const hasMedia = Boolean(
+    (post.originalVideoUrl || post.videoUrl || post.mediaUrl || post.imageUrl || "").trim()
+  );
+  return hasMedia ? "image" : "text";
+}
+
 function parseBase64DataUrl(dataUrl) {
   const match = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl || "");
   if (!match) {
@@ -82,6 +114,10 @@ async function downloadVideoWithYtDlp(url, tempDir) {
 }
 
 async function resolveMediaBlob(post, mediaType) {
+  if (isTextPost(post, mediaType)) {
+    return null;
+  }
+
   const mediaSource = (
     post.originalVideoUrl ||
     post.videoUrl ||
@@ -175,10 +211,39 @@ function resolveCaptionForPage(post, pageKey, page) {
     }
   }
 
-  return post.caption || "";
+  return (post.caption || "").trim();
 }
 
 async function publishMediaToPage({ fbPageId, accessToken, caption, mediaType, cachedMedia }) {
+  const textOnly = isTextPost({ mediaType }, mediaType);
+
+  if (textOnly) {
+    const trimmedMessage = (caption || "").trim();
+    if (!trimmedMessage) {
+      throw new Error("Text-only post has empty message text.");
+    }
+
+    const endpoint = `https://graph.facebook.com/v21.0/${fbPageId}/feed`;
+    const body = new URLSearchParams({
+      message: trimmedMessage,
+      access_token: accessToken
+    });
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body
+    });
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error?.message || `Facebook API error (${response.status})`);
+    }
+    return data;
+  }
+
   const isVideo = mediaType === "video";
   const endpoint = isVideo
     ? `https://graph.facebook.com/v21.0/${fbPageId}/videos`
@@ -238,8 +303,7 @@ async function run() {
     const postRef = db.ref(`scheduledPosts/${postId}`);
     await postRef.update({ status: "processing", startedAt: Date.now() });
 
-    const mediaType =
-      post.mediaType || (post.mimeType?.startsWith("video/") ? "video" : "image");
+    const mediaType = detectMediaType(post);
 
     const targetKeys = Array.isArray(post.targetPages)
       ? post.targetPages
