@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -28,19 +28,20 @@ jobs:
           sudo apt-get update -y && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
-          cache: "npm"
 
       - name: Install Node dependencies
         run: |
+          if [ ! -f package.json ]; then
+            npm init -y
+            npm pkg set type="module"
+          fi
           if [ -f package-lock.json ]; then
             npm ci
-          elif [ -f package.json ]; then
-            npm install
           else
-            npm init -y && npm install firebase-admin
+            npm install firebase-admin
           fi
 
       - name: Run Facebook poster worker
