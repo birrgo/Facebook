@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1 Page → Share Link or Photo to Groups (RTDB)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f2f5;
+      color: #1c1e21;
+      margin: 0;
+      padding: 20px 14px;
+    }
+    .container { max-width: 840px; margin: 0 auto; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .notice {
+      background: #fff8e1;
+      border-left: 4px solid #f0ad4e;
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: #5c4400;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 12px; color: #1877f2; }
+    h2 { font-size: 1.08rem; margin: 0 0 12px; }
+    input, textarea, select, button {
+      width: 100%;
+      padding: 10px 12px;
+      margin: 6px 0 12px;
+      border: 1px solid #ccd0d5;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    button {
+      background: #1877f2;
+      color: #fff;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #166fe5; }
+    button:disabled { background: #9cb4d8; cursor: not-allowed; }
+    button.btn-edit {
+      background: #f0ad4e;
+      color: #1c1e21;
+      width: auto;
+      padding: 6px 12px;
+      margin: 0;
+      font-size: 12px;
+    }
+    button.btn-edit:hover { background: #ec971f; }
+    button.btn-secondary {
+      background: #4b4f56;
+      width: auto;
+      padding: 7px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    button.btn-success {
+      background: #1f8b4c;
+      width: auto;
+      padding: 7px 14px;
+      margin: 0;
+      font-size: 13px;
+    }
+    button.btn-danger {
+      background: #e41e3f;
+      width: auto;
+      padding: 6px 12px;
+      margin: 0;
+      font-size: 12px;
+    }
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #ebedf0;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .list-item:last-child { border-bottom: none; }
+    .select-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f7f8fa;
+      border: 1px solid #e4e6eb;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 6px 0 10px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      cursor: pointer;
+    }
+    .checkbox-row input { width: auto; margin: 0; }
+    .groups-box {
+      max-height: 260px;
+      overflow-y: auto;
+      border: 1px solid #dcdfe3;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 14px;
+      background: #fff;
+    }
+    .group-check-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid #f0f2f5;
+      gap: 8px;
+    }
+    .group-check-row:last-child { border-bottom: none; }
+    .preview-media {
+      max-width: 100%;
+      max-height: 240px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .launcher-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f7f8fa;
+      border: 1px solid #e4e6eb;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .done-tag {
+      background: #d4edda;
+      color: #155724;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .hidden { display: none !important; }
+    small { color: #65676b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>1 Page → Share Link or Photo to Groups</h1>
+    <div class="notice">
+      Reads and saves groups directly in Firebase Realtime Database (<code>fbGroups</code>). Pick <strong>1 Page</strong> from <code>fbPages</code>, attach a <strong>Link</strong> or <strong>Photo</strong>, and <strong>Select ALL Groups</strong> to copy your post text, download/preview your photo, and open each group in sequence.
+    </div>
+
+    <!-- LOGIN CARD -->
+    <div id="loginCard" class="card">
+      <h2>Admin Sign In</h2>
+      <form id="emailLoginForm">
+        <input type="email" id="emailInput" value="firatech2541@gmail.com" placeholder="Admin Email" required />
+        <input type="password" id="passwordInput" placeholder="Password" required />
+        <button type="submit" id="emailLoginBtn">Sign In</button>
+      </form>
+      <p id="loginError" style="color:#e41e3f; margin:6px 0 0;"></p>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="appSection" class="hidden">
+      <div class="topbar">
+        <small id="userLabel"></small>
+        <button type="button" id="logoutBtn" class="btn-secondary">Sign Out</button>
+      </div>
+
+      <!-- 1. SAVE & READ GROUPS IN REALTIME DB -->
+      <div class="card">
+        <div class="topbar" style="margin-bottom:6px;">
+          <h2 style="margin:0;">1. Save &amp; Read Facebook Groups (<code>fbGroups</code>)</h2>
+          <button type="button" id="reloadGroupsBtn" class="btn-secondary">Reload Groups from DB</button>
+        </div>
+        <input type="text" id="groupNameInput" placeholder="Group Name (e.g. Ethio Tech & Business)" />
+        <input type="text" id="groupUrlOrIdInput" placeholder="Group URL or ID (e.g. https://www.facebook.com/groups/123456)" />
+        <div class="row-actions" style="margin-bottom:8px;">
+          <button type="button" id="addGroupBtn" style="flex:1; margin:0;">+ Save Group to Database</button>
+          <button type="button" id="cancelEditGroupBtn" class="btn-secondary hidden">Cancel Edit</button>
+        </div>
+        <p id="groupDbStatus" style="font-weight:600; margin:6px 0 8px;"></p>
+        <div id="groupsListContainer"></div>
+      </div>
+
+      <!-- 2. SELECT 1 PAGE + LINK OR PHOTO + TARGET GROUPS -->
+      <div class="card">
+        <h2>2. Choose 1 Page, Add Link or Photo, &amp; Select Groups</h2>
+
+        <label><strong>Select 1 Page</strong></label>
+        <select id="singlePageSelect">
+          <option value="">Loading pages...</option>
+        </select>
+
+        <label><strong>Share Type</strong></label>
+        <select id="shareKindSelect">
+          <option value="link">Link</option>
+          <option value="photo">Photo</option>
+        </select>
+
+        <div id="linkInputBlock">
+          <label><strong>Link URL</strong></label>
+          <input type="url" id="linkUrlInput" placeholder="https://example.com/your-link" />
+        </div>
+
+        <div id="photoInputBlock" class="hidden">
+          <label><strong>Select Photo</strong></label>
+          <input type="file" id="photoFileInput" accept="image/*" />
+          <img id="photoPreview" class="preview-media" alt="Selected Photo Preview" />
+          <div class="row-actions" style="margin-bottom:10px;">
+            <button type="button" id="downloadPhotoBtn" class="btn-secondary hidden">Download Photo to Attach</button>
+          </div>
+        </div>
+
+        <label><strong>Caption</strong></label>
+        <textarea id="captionInput" rows="3" placeholder="Write caption..."></textarea>
+
+        <label><strong>Target Groups (<span id="selectedCountLabel">0</span> selected)</strong></label>
+        <div class="select-bar">
+          <label class="checkbox-row">
+            <input type="checkbox" id="selectAllGroupsCb" />
+            <strong>Select ALL Groups at Once</strong>
+          </label>
+          <input
+            type="text"
+            id="groupSearchInput"
+            placeholder="Filter groups..."
+            style="width:auto; min-width:190px; margin:0; padding:6px 10px;"
+          />
+        </div>
+
+        <div id="groupCheckboxesContainer" class="groups-box">
+          <small>Loading groups...</small>
+        </div>
+
+        <div class="row-actions">
+          <button type="button" id="saveShareQueueBtn" class="btn-secondary">Save to RTDB Queue</button>
+          <button type="button" id="startGroupShareBtn" class="btn-success">Start Sharing to Groups</button>
+        </div>
+        <p id="statusMsg" style="font-weight:600; margin:10px 0 0;"></p>
+      </div>
+
+      <!-- 3. GROUP SHARING CHECKLIST -->
+      <div id="launcherCard" class="card hidden">
+        <div class="topbar" style="margin-bottom:8px;">
+          <h2 style="margin:0;">3. Group Sharing Checklist</h2>
+          <button type="button" id="openNextGroupBtn" class="btn-success">Open Next Group</button>
+        </div>
+        <div id="launcherListContainer"></div>
+      </div>
+
+      <!-- 4. SAVED GROUP SHARE ITEMS -->
+      <div class="card">
+        <h2>4. Saved Page-to-Group Shares (<code>pageGroupShares</code>)</h2>
+        <div id="savedSharesContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getAuth,
+      signInWithEmailAndPassword,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      getDatabase,
+      ref,
+      push,
+      set,
+      get,
+      update,
+      remove,
+      onValue
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLpsaHZAkQaItuLnLN1d4DEj735_3Zho0",
+      authDomain: "facebook-d49ac.firebaseapp.com",
+      databaseURL: "https://facebook-d49ac-default-rtdb.firebaseio.com",
+      projectId: "facebook-d49ac",
+      storageBucket: "facebook-d49ac.firebasestorage.app",
+      messagingSenderId: "574829461616",
+      appId: "1:574829461616:web:9a6a1cad912da293d4f4b5",
+      measurementId: "G-E8RFDP367Z"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    const loginCard = document.getElementById("loginCard");
+    const appSection = document.getElementById("appSection");
+    const loginError = document.getElementById("loginError");
+    const userLabel = document.getElementById("userLabel");
+    const emailLoginForm = document.getElementById("emailLoginForm");
+    const emailLoginBtn = document.getElementById("emailLoginBtn");
+
+    const reloadGroupsBtn = document.getElementById("reloadGroupsBtn");
+    const groupNameInput = document.getElementById("groupNameInput");
+    const groupUrlOrIdInput = document.getElementById("groupUrlOrIdInput");
+    const addGroupBtn = document.getElementById("addGroupBtn");
+    const cancelEditGroupBtn = document.getElementById("cancelEditGroupBtn");
+    const groupDbStatus = document.getElementById("groupDbStatus");
+    const groupsListContainer = document.getElementById("groupsListContainer");
+
+    const singlePageSelect = document.getElementById("singlePageSelect");
+    const shareKindSelect = document.getElementById("shareKindSelect");
+    const linkInputBlock = document.getElementById("linkInputBlock");
+    const photoInputBlock = document.getElementById("photoInputBlock");
+    const linkUrlInput = document.getElementById("linkUrlInput");
+    const photoFileInput = document.getElementById("photoFileInput");
+    const photoPreview = document.getElementById("photoPreview");
+    const downloadPhotoBtn = document.getElementById("downloadPhotoBtn");
+    const captionInput = document.getElementById("captionInput");
+
+    const selectAllGroupsCb = document.getElementById("selectAllGroupsCb");
+    const groupSearchInput = document.getElementById("groupSearchInput");
+    const groupCheckboxesContainer = document.getElementById("groupCheckboxesContainer");
+    const selectedCountLabel = document.getElementById("selectedCountLabel");
+    const saveShareQueueBtn = document.getElementById("saveShareQueueBtn");
+    const startGroupShareBtn = document.getElementById("startGroupShareBtn");
+    const statusMsg = document.getElementById("statusMsg");
+
+    const launcherCard = document.getElementById("launcherCard");
+    const launcherListContainer = document.getElementById("launcherListContainer");
+    const openNextGroupBtn = document.getElementById("openNextGroupBtn");
+    const savedSharesContainer = document.getElementById("savedSharesContainer");
+
+    let listenersAttached = false;
+    let latestPagesMap = {};
+    let latestGroupsMap = {};
+    let selectedGroupKeys = new Set();
+    let activeShareItems = [];
+    let currentPhotoDataUrl = "";
+    let currentPhotoName = "shared-photo.jpg";
+    let editingGroupKey = null;
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeGroupUrl(rawInput) {
+      const val = (rawInput || "").trim();
+      if (!val) return "";
+      if (/^https?:\/\//i.test(val)) return val;
+      const cleanId = val.replace(/^@/, "").replace(/^\/+|\/+$/g, "");
+      return `https://www.facebook.com/groups/${encodeURIComponent(cleanId)}`;
+    }
+
+    shareKindSelect.addEventListener("change", () => {
+      const isPhoto = shareKindSelect.value === "photo";
+      linkInputBlock.classList.toggle("hidden", isPhoto);
+      photoInputBlock.classList.toggle("hidden", !isPhoto);
+    });
+
+    async function optimizePhotoToDataUrl(file, maxDim = 1280, quality = 0.78) {
+      try {
+        const bitmap = await createImageBitmap(file);
+        let { width, height } = bitmap;
+        if (width > maxDim || height > maxDim) {
+          const scale = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        bitmap.close?.();
+        const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", quality));
+        if (blob && blob.size > 0) {
+          currentPhotoName = `${file.name.replace(/\.[^.]+$/, "") || "photo"}.jpg`;
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch {}
+      currentPhotoName = file.name || "photo.jpg";
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    photoFileInput.addEventListener("change", async () => {
+      const file = photoFileInput.files[0];
+      if (!file) {
+        currentPhotoDataUrl = "";
+        photoPreview.style.display = "none";
+        downloadPhotoBtn.classList.add("hidden");
+        return;
+      }
+      currentPhotoDataUrl = await optimizePhotoToDataUrl(file);
+      photoPreview.src = currentPhotoDataUrl;
+      photoPreview.style.display = "block";
+      downloadPhotoBtn.classList.remove("hidden");
+    });
+
+    downloadPhotoBtn.addEventListener("click", () => {
+      if (!currentPhotoDataUrl) return;
+      const a = document.createElement("a");
+      a.href = currentPhotoDataUrl;
+      a.download = currentPhotoName;
+      a.click();
+    });
+
+    function buildSharePayloadText(overridePageName, overrideCaption, overrideKind, overrideLink) {
+      const pageKey = singlePageSelect.value;
+      const pageName = overridePageName || latestPagesMap[pageKey]?.pageName || "";
+      const cap = (overrideCaption ?? captionInput.value ?? "").trim();
+      const kind = overrideKind || shareKindSelect.value;
+      const link = (overrideLink ?? linkUrlInput.value ?? "").trim();
+
+      const header = pageName ? `Via ${pageName}:` : "";
+      const body = kind === "link" ? [cap, link].filter(Boolean).join("\n\n") : cap;
+      return [header, body].filter(Boolean).join("\n");
+    }
+
+    async function copyTextSafe(text) {
+      if (!text) return false;
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        return ok;
+      }
+    }
+
+    function updateGroupSelectionUi() {
+      const allKeys = Object.keys(latestGroupsMap);
+      const validSelected = allKeys.filter((k) => selectedGroupKeys.has(k));
+      selectedCountLabel.textContent = String(validSelected.length);
+
+      if (allKeys.length === 0) {
+        selectAllGroupsCb.checked = false;
+        selectAllGroupsCb.indeterminate = false;
+      } else if (validSelected.length === allKeys.length) {
+        selectAllGroupsCb.checked = true;
+        selectAllGroupsCb.indeterminate = false;
+      } else if (validSelected.length === 0) {
+        selectAllGroupsCb.checked = false;
+        selectAllGroupsCb.indeterminate = false;
+      } else {
+        selectAllGroupsCb.checked = false;
+        selectAllGroupsCb.indeterminate = true;
+      }
+    }
+
+    function getFilteredGroupKeys() {
+      const q = (groupSearchInput.value || "").trim().toLowerCase();
+      return Object.entries(latestGroupsMap)
+        .filter(([, g]) => {
+          if (!q) return true;
+          return (
+            String(g.groupName || "").toLowerCase().includes(q) ||
+            String(g.groupUrl || "").toLowerCase().includes(q)
+          );
+        })
+        .map(([k]) => k);
+    }
+
+    function renderGroupCheckboxes() {
+      const keys = getFilteredGroupKeys();
+      groupCheckboxesContainer.innerHTML = "";
+
+      if (keys.length === 0) {
+        groupCheckboxesContainer.innerHTML = "<small>No matching groups.</small>";
+        updateGroupSelectionUi();
+        return;
+      }
+
+      keys.forEach((key) => {
+        const grp = latestGroupsMap[key];
+        const row = document.createElement("div");
+        row.className = "group-check-row";
+
+        const label = document.createElement("label");
+        label.className = "checkbox-row";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = key;
+        cb.checked = selectedGroupKeys.has(key);
+        cb.addEventListener("change", () => {
+          if (cb.checked) selectedGroupKeys.add(key);
+          else selectedGroupKeys.delete(key);
+          updateGroupSelectionUi();
+        });
+
+        const span = document.createElement("span");
+        span.textContent = grp.groupName || key;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+
+        const urlSmall = document.createElement("small");
+        urlSmall.textContent = grp.groupUrl || "";
+
+        row.appendChild(label);
+        row.appendChild(urlSmall);
+        groupCheckboxesContainer.appendChild(row);
+      });
+
+      updateGroupSelectionUi();
+    }
+
+    function renderGroupsList(groupsObj) {
+      latestGroupsMap = groupsObj || {};
+      groupsListContainer.innerHTML = "";
+      const entries = Object.entries(latestGroupsMap);
+
+      // Prune deleted group keys from selection
+      selectedGroupKeys = new Set(
+        Array.from(selectedGroupKeys).filter((k) => Boolean(latestGroupsMap[k]))
+      );
+
+      if (entries.length === 0) {
+        groupsListContainer.innerHTML = "<small>No groups saved in Realtime Database (<code>fbGroups</code>) yet.</small>";
+        renderGroupCheckboxes();
+        return;
+      }
+
+      entries.forEach(([key, grp]) => {
+        const row = document.createElement("div");
+        row.className = "list-item";
+        row.innerHTML = `<div><strong>${escapeHtml(grp.groupName)}</strong><br/><small>${escapeHtml(grp.groupUrl)}</small></div>`;
+
+        const actions = document.createElement("div");
+        actions.className = "row-actions";
+
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "btn-edit";
+        editBtn.textContent = "Edit";
+        editBtn.onclick = () => startEditingGroup(key, grp);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-danger";
+        delBtn.textContent = "Delete";
+        delBtn.onclick = async () => {
+          try {
+            if (editingGroupKey === key) resetGroupForm();
+            selectedGroupKeys.delete(key);
+            await remove(ref(db, `fbGroups/${key}`));
+            groupDbStatus.style.color = "#155724";
+            groupDbStatus.textContent = `Deleted "${grp.groupName || key}" from Realtime Database.`;
+          } catch (err) {
+            groupDbStatus.style.color = "#e41e3f";
+            groupDbStatus.textContent = "Delete failed: " + err.message;
+          }
+        };
+
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+        groupsListContainer.appendChild(row);
+      });
+
+      renderGroupCheckboxes();
+    }
+
+    async function readGroupsFromDatabase(showFeedback = false) {
+      if (!auth.currentUser) {
+        groupDbStatus.style.color = "#e41e3f";
+        groupDbStatus.textContent = "Sign in first to read groups from Realtime Database.";
+        return;
+      }
+      if (showFeedback) {
+        reloadGroupsBtn.disabled = true;
+        groupDbStatus.style.color = "#1877f2";
+        groupDbStatus.textContent = "Reading groups from Realtime Database (fbGroups)...";
+      }
+      try {
+        const snap = await get(ref(db, "fbGroups"));
+        const data = snap.exists() ? snap.val() : {};
+        renderGroupsList(data);
+        if (showFeedback) {
+          const count = Object.keys(data || {}).length;
+          groupDbStatus.style.color = "#155724";
+          groupDbStatus.textContent = `Loaded ${count} group(s) from Realtime Database.`;
+        }
+      } catch (err) {
+        groupDbStatus.style.color = "#e41e3f";
+        groupDbStatus.textContent = "Failed to read groups: " + err.message;
+      } finally {
+        if (showFeedback) reloadGroupsBtn.disabled = false;
+      }
+    }
+
+    reloadGroupsBtn.addEventListener("click", () => readGroupsFromDatabase(true));
+
+    selectAllGroupsCb.addEventListener("change", () => {
+      const keys = getFilteredGroupKeys();
+      if (selectAllGroupsCb.checked) {
+        keys.forEach((k) => selectedGroupKeys.add(k));
+      } else {
+        keys.forEach((k) => selectedGroupKeys.delete(k));
+      }
+      renderGroupCheckboxes();
+    });
+
+    groupSearchInput.addEventListener("input", renderGroupCheckboxes);
+
+    function resetGroupForm() {
+      editingGroupKey = null;
+      groupNameInput.value = "";
+      groupUrlOrIdInput.value = "";
+      addGroupBtn.textContent = "+ Save Group to Database";
+      cancelEditGroupBtn.classList.add("hidden");
+    }
+
+    function startEditingGroup(key, grp) {
+      editingGroupKey = key;
+      groupNameInput.value = grp.groupName || "";
+      groupUrlOrIdInput.value = grp.groupUrl || "";
+      addGroupBtn.textContent = "Save Group Changes";
+      cancelEditGroupBtn.classList.remove("hidden");
+      groupNameInput.focus();
+    }
+
+    cancelEditGroupBtn.addEventListener("click", resetGroupForm);
+
+    addGroupBtn.addEventListener("click", async () => {
+      if (!auth.currentUser) {
+        alert("Please sign in first.");
+        return;
+      }
+      const groupName = groupNameInput.value.trim();
+      const groupUrl = normalizeGroupUrl(groupUrlOrIdInput.value);
+      if (!groupName || !groupUrl) {
+        alert("Enter Group Name and Group URL or ID.");
+        return;
+      }
+
+      addGroupBtn.disabled = true;
+      groupDbStatus.style.color = "#1877f2";
+      groupDbStatus.textContent = "Saving group to Realtime Database...";
+
+      try {
+        if (editingGroupKey) {
+          await update(ref(db, `fbGroups/${editingGroupKey}`), {
+            groupName,
+            groupUrl,
+            updatedAt: Date.now()
+          });
+          groupDbStatus.style.color = "#155724";
+          groupDbStatus.textContent = `Updated "${groupName}" in Realtime Database.`;
+        } else {
+          const newRef = push(ref(db, "fbGroups"));
+          await set(newRef, {
+            groupName,
+            groupUrl,
+            createdAt: Date.now()
+          });
+          selectedGroupKeys.add(newRef.key);
+          groupDbStatus.style.color = "#155724";
+          groupDbStatus.textContent = `Saved "${groupName}" to Realtime Database (fbGroups).`;
+        }
+        resetGroupForm();
+      } catch (err) {
+        groupDbStatus.style.color = "#e41e3f";
+        groupDbStatus.textContent = "Failed to save group: " + err.message;
+      } finally {
+        addGroupBtn.disabled = false;
+      }
+    });
+
+    function validateInputs() {
+      const selectedPageKey = singlePageSelect.value;
+      if (!selectedPageKey || !latestPagesMap[selectedPageKey]) {
+        alert("Please select 1 Page.");
+        return null;
+      }
+
+      const targetGroupKeys = Object.keys(latestGroupsMap).filter((k) => selectedGroupKeys.has(k));
+      if (targetGroupKeys.length === 0) {
+        alert("Please select at least one Group.");
+        return null;
+      }
+
+      const shareKind = shareKindSelect.value;
+      const linkUrl = linkUrlInput.value.trim();
+      const caption = captionInput.value.trim();
+
+      if (shareKind === "link" && (!linkUrl || !/^https?:\/\//i.test(linkUrl))) {
+        alert("Please enter a valid http:// or https:// link.");
+        return null;
+      }
+
+      if (shareKind === "photo" && !currentPhotoDataUrl) {
+        alert("Please select a photo to share.");
+        return null;
+      }
+
+      const pageObj = latestPagesMap[selectedPageKey];
+      return {
+        pageKey: selectedPageKey,
+        fbPageId: pageObj.fbPageId || "",
+        pageName: pageObj.pageName || selectedPageKey,
+        shareKind,
+        linkUrl: shareKind === "link" ? linkUrl : "",
+        photoDataUrl: shareKind === "photo" ? currentPhotoDataUrl : "",
+        photoName: shareKind === "photo" ? currentPhotoName : "",
+        caption,
+        targetGroupKeys,
+        groupNames: targetGroupKeys.map((k) => latestGroupsMap[k]?.groupName || k)
+      };
+    }
+
+    function renderLauncher() {
+      launcherListContainer.innerHTML = "";
+      if (activeShareItems.length === 0) {
+        launcherCard.classList.add("hidden");
+        return;
+      }
+      launcherCard.classList.remove("hidden");
+
+      activeShareItems.forEach((item, idx) => {
+        const row = document.createElement("div");
+        row.className = "launcher-item";
+
+        const left = document.createElement("div");
+        left.innerHTML = `<strong>${idx + 1}. ${escapeHtml(item.groupName)}</strong><br/><small>${escapeHtml(item.groupUrl)}</small>`;
+
+        const right = document.createElement("div");
+        right.className = "row-actions";
+
+        if (item.shared) {
+          const tag = document.createElement("span");
+          tag.className = "done-tag";
+          tag.textContent = "SHARED";
+          right.appendChild(tag);
+        }
+
+        const openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "btn-secondary";
+        openBtn.textContent = "Open Group";
+        openBtn.onclick = async () => {
+          if (item.shareText) await copyTextSafe(item.shareText);
+          window.open(item.groupUrl, "_blank", "noopener,noreferrer");
+        };
+
+        const markBtn = document.createElement("button");
+        markBtn.type = "button";
+        markBtn.className = "btn-success";
+        markBtn.textContent = item.shared ? "Unmark" : "Mark Shared";
+        markBtn.onclick = () => {
+          item.shared = !item.shared;
+          renderLauncher();
+        };
+
+        right.appendChild(openBtn);
+        right.appendChild(markBtn);
+        row.appendChild(left);
+        row.appendChild(right);
+        launcherListContainer.appendChild(row);
+      });
+    }
+
+    startGroupShareBtn.addEventListener("click", async () => {
+      const data = validateInputs();
+      if (!data) return;
+
+      const shareText = buildSharePayloadText(data.pageName, data.caption, data.shareKind, data.linkUrl);
+      if (shareText) await copyTextSafe(shareText);
+
+      activeShareItems = data.targetGroupKeys.map((k) => ({
+        key: k,
+        groupName: latestGroupsMap[k]?.groupName || k,
+        groupUrl: latestGroupsMap[k]?.groupUrl || "",
+        shareText,
+        shared: false
+      }));
+
+      renderLauncher();
+
+      const first = activeShareItems[0];
+      if (first?.groupUrl) {
+        window.open(first.groupUrl, "_blank", "noopener,noreferrer");
+      }
+
+      statusMsg.style.color = "#155724";
+      statusMsg.textContent = `Sharing as ${data.pageName} to ${activeShareItems.length} group(s). Caption/link copied & first group opened.`;
+    });
+
+    openNextGroupBtn.addEventListener("click", async () => {
+      const next = activeShareItems.find((i) => !i.shared);
+      if (!next) return alert("All groups in this list are marked Shared!");
+      if (next.shareText) await copyTextSafe(next.shareText);
+      window.open(next.groupUrl, "_blank", "noopener,noreferrer");
+    });
+
+    saveShareQueueBtn.addEventListener("click", async () => {
+      if (!auth.currentUser) return alert("Please sign in first.");
+      const data = validateInputs();
+      if (!data) return;
+
+      saveShareQueueBtn.disabled = true;
+      try {
+        await set(push(ref(db, "pageGroupShares")), {
+          pageKey: data.pageKey,
+          fbPageId: data.fbPageId,
+          pageName: data.pageName,
+          shareKind: data.shareKind,
+          linkUrl: data.linkUrl,
+          photoDataUrl: data.photoDataUrl,
+          photoName: data.photoName,
+          caption: data.caption,
+          targetGroups: data.targetGroupKeys,
+          groupNames: data.groupNames,
+          createdAt: Date.now()
+        });
+        statusMsg.style.color = "#155724";
+        statusMsg.textContent = `Saved ${data.shareKind} share from ${data.pageName} for ${data.targetGroupKeys.length} group(s).`;
+      } catch (err) {
+        statusMsg.style.color = "#e41e3f";
+        statusMsg.textContent = "Error saving: " + err.message;
+      } finally {
+        saveShareQueueBtn.disabled = false;
+      }
+    });
+
+    function startListeners() {
+      onValue(ref(db, "fbPages"), (snap) => {
+        latestPagesMap = snap.val() || {};
+        const prevVal = singlePageSelect.value;
+        singlePageSelect.innerHTML = "";
+
+        const entries = Object.entries(latestPagesMap);
+        if (entries.length === 0) {
+          singlePageSelect.innerHTML = '<option value="">No pages found in fbPages</option>';
+          return;
+        }
+
+        entries.forEach(([key, p]) => {
+          const opt = document.createElement("option");
+          opt.value = key;
+          opt.textContent = `${p.pageName || key} (${p.fbPageId || key})`;
+          singlePageSelect.appendChild(opt);
+        });
+
+        if (prevVal && latestPagesMap[prevVal]) {
+          singlePageSelect.value = prevVal;
+        }
+      });
+
+      onValue(
+        ref(db, "fbGroups"),
+        (snap) => {
+          renderGroupsList(snap.exists() ? snap.val() : {});
+        },
+        (err) => {
+          groupDbStatus.style.color = "#e41e3f";
+          groupDbStatus.textContent = "Realtime listener error on fbGroups: " + err.message;
+        }
+      );
+
+      onValue(ref(db, "pageGroupShares"), (snap) => {
+        const map = snap.val() || {};
+        savedSharesContainer.innerHTML = "";
+        const entries = Object.entries(map).reverse();
+
+        if (entries.length === 0) {
+          savedSharesContainer.innerHTML = "<small>No saved shares yet.</small>";
+          return;
+        }
+
+        entries.forEach(([id, item]) => {
+          const keys = Array.isArray(item.targetGroups)
+            ? item.targetGroups
+            : Object.values(item.targetGroups || {});
+          const gNames = keys.map((k) => latestGroupsMap[k]?.groupName || k).join(", ");
+          const row = document.createElement("div");
+          row.className = "list-item";
+          row.innerHTML = `
+            <div>
+              <strong>${escapeHtml(item.pageName || item.pageKey)} → ${escapeHtml((item.shareKind || "link").toUpperCase())}</strong><br/>
+              <small>${escapeHtml(item.caption || item.linkUrl || item.photoName || "")} • ${keys.length} Group(s): ${escapeHtml(gNames)}</small>
+            </div>
+          `;
+
+          const actions = document.createElement("div");
+          actions.className = "row-actions";
+
+          const loadBtn = document.createElement("button");
+          loadBtn.type = "button";
+          loadBtn.className = "btn-secondary";
+          loadBtn.textContent = "Load";
+          loadBtn.onclick = () => {
+            if (item.pageKey && latestPagesMap[item.pageKey]) {
+              singlePageSelect.value = item.pageKey;
+            }
+            shareKindSelect.value = item.shareKind === "photo" ? "photo" : "link";
+            shareKindSelect.dispatchEvent(new Event("change"));
+            linkUrlInput.value = item.linkUrl || "";
+            captionInput.value = item.caption || "";
+            if (item.photoDataUrl) {
+              currentPhotoDataUrl = item.photoDataUrl;
+              currentPhotoName = item.photoName || "shared-photo.jpg";
+              photoPreview.src = currentPhotoDataUrl;
+              photoPreview.style.display = "block";
+              downloadPhotoBtn.classList.remove("hidden");
+            }
+            selectedGroupKeys = new Set(keys.filter((k) => Boolean(latestGroupsMap[k])));
+            renderGroupCheckboxes();
+            statusMsg.style.color = "#1877f2";
+            statusMsg.textContent = "Loaded saved share into form.";
+          };
+
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "btn-danger";
+          delBtn.textContent = "Delete";
+          delBtn.onclick = () => remove(ref(db, `pageGroupShares/${id}`));
+
+          actions.appendChild(loadBtn);
+          actions.appendChild(delBtn);
+          row.appendChild(actions);
+          savedSharesContainer.appendChild(row);
+        });
+      });
+    }
+
+    emailLoginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.textContent = "";
+      emailLoginBtn.disabled = true;
+      emailLoginBtn.textContent = "Signing in...";
+      try {
+        await signInWithEmailAndPassword(
+          auth,
+          document.getElementById("emailInput").value.trim(),
+          document.getElementById("passwordInput").value
+        );
+      } catch (err) {
+        loginError.textContent = err.message;
+      } finally {
+        emailLoginBtn.disabled = false;
+        emailLoginBtn.textContent = "Sign In";
+      }
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loginCard.classList.add("hidden");
+        appSection.classList.remove("hidden");
+        userLabel.innerHTML = `Signed in as <strong>${escapeHtml(user.email)}</strong>`;
+        if (!listenersAttached) {
+          listenersAttached = true;
+          startListeners();
+        }
+        readGroupsFromDatabase(false);
+      } else {
+        loginCard.classList.remove("hidden");
+        appSection.classList.add("hidden");
+      }
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
+  </script>
+</body>
+</html>
