@@ -1,4 +1,11 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import admin from "firebase-admin";
+
+const execFileAsync = promisify(execFile);
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 const databaseURL = process.env.FIREBASE_DATABASE_URL;
@@ -31,7 +38,58 @@ function parseBase64DataUrl(dataUrl) {
   return { buffer, mimeType, filename: `upload.${ext}` };
 }
 
-async function resolveMediaBlob(mediaSource) {
+function isDirectVideoUrl(url = "") {
+  return (
+    /\.(mp4|mov|webm|m4v|mkv|ogg)(\?.*)?$/i.test(url) ||
+    url.includes("drive.google.com/uc?export=download") ||
+    url.includes("dropbox.com")
+  );
+}
+
+async function downloadVideoWithYtDlp(url, tempDir) {
+  const baseTemplate = path.join(tempDir, `ytdlp_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+  const expectedMp4 = `${baseTemplate}.mp4`;
+
+  await execFileAsync(
+    "yt-dlp",
+    [
+      "--no-playlist",
+      "--no-warnings",
+      "-f",
+      "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
+      "--merge-output-format",
+      "mp4",
+      "-o",
+      expectedMp4,
+      url
+    ],
+    { maxBuffer: 25 * 1024 * 1024 }
+  );
+
+  if (fs.existsSync(expectedMp4)) {
+    return expectedMp4;
+  }
+
+  const matchingFile = fs
+    .readdirSync(tempDir)
+    .map((f) => path.join(tempDir, f))
+    .find((fullPath) => fullPath.startsWith(baseTemplate));
+
+  if (!matchingFile) {
+    throw new Error(`yt-dlp did not produce a video file for: ${url}`);
+  }
+  return matchingFile;
+}
+
+async function resolveMediaBlob(post, mediaType) {
+  const mediaSource = (
+    post.originalVideoUrl ||
+    post.videoUrl ||
+    post.mediaUrl ||
+    post.imageUrl ||
+    ""
+  ).trim();
+
   if (!mediaSource || typeof mediaSource !== "string") {
     throw new Error("Missing media URL or image data in scheduled post.");
   }
@@ -41,26 +99,58 @@ async function resolveMediaBlob(mediaSource) {
     return {
       blob: new Blob([buffer], { type: mimeType }),
       filename,
-      remoteUrl: null
+      tempFilePath: null
     };
   }
 
-  if (/^https?:\/\//i.test(mediaSource)) {
-    const res = await fetch(mediaSource);
-    if (!res.ok) {
-      throw new Error(`Failed to download media (${res.status}) from ${mediaSource}`);
+  if (!/^https?:\/\//i.test(mediaSource)) {
+    throw new Error("Unsupported media URL format.");
+  }
+
+  const shouldUseYtDlp =
+    mediaType === "video" && (Boolean(post.requiresExtractor) || !isDirectVideoUrl(mediaSource));
+
+  if (shouldUseYtDlp) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "fb_video_"));
+    try {
+      const downloadedPath = await downloadVideoWithYtDlp(mediaSource, tempDir);
+      const fileBuffer = fs.readFileSync(downloadedPath);
+      return {
+        blob: new Blob([fileBuffer], { type: "video/mp4" }),
+        filename: path.basename(downloadedPath) || "video.mp4",
+        tempFilePath: tempDir
+      };
+    } catch (err) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      throw new Error(`Failed to extract video from link (${mediaSource}): ${err.message}`);
     }
-    const arrayBuffer = await res.arrayBuffer();
-    const mimeType = res.headers.get("content-type") || "image/jpeg";
-    const ext = mimeType.includes("video") ? "mp4" : "jpg";
-    return {
-      blob: new Blob([arrayBuffer], { type: mimeType }),
-      filename: `upload.${ext}`,
-      remoteUrl: mediaSource
-    };
   }
 
-  throw new Error("Unsupported media URL format.");
+  const res = await fetch(mediaSource);
+  if (!res.ok) {
+    throw new Error(`Failed to download media (${res.status}) from ${mediaSource}`);
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  const contentType = res.headers.get("content-type") || "";
+  const mimeType =
+    mediaType === "video"
+      ? (contentType.startsWith("video/") ? contentType : "video/mp4")
+      : (contentType.startsWith("image/") ? contentType : "image/jpeg");
+  const ext = mediaType === "video" ? "mp4" : (mimeType.split("/")[1]?.split("+")[0] || "jpg");
+
+  return {
+    blob: new Blob([arrayBuffer], { type: mimeType }),
+    filename: post.fileName || `upload.${ext}`,
+    tempFilePath: null
+  };
+}
+
+function cleanupTempMedia(cachedMedia) {
+  if (cachedMedia?.tempFilePath) {
+    try {
+      fs.rmSync(cachedMedia.tempFilePath, { recursive: true, force: true });
+    } catch {}
+  }
 }
 
 function resolveCaptionForPage(post, pageKey, page) {
@@ -73,7 +163,11 @@ function resolveCaptionForPage(post, pageKey, page) {
 
     if (page?.fbPageId) {
       const byFbId = Object.values(variations).find(
-        (v) => v && String(v.fbPageId) === String(page.fbPageId) && typeof v.finalCaption === "string" && v.finalCaption.trim()
+        (v) =>
+          v &&
+          String(v.fbPageId) === String(page.fbPageId) &&
+          typeof v.finalCaption === "string" &&
+          v.finalCaption.trim()
       );
       if (byFbId) {
         return byFbId.finalCaption.trim();
@@ -84,25 +178,19 @@ function resolveCaptionForPage(post, pageKey, page) {
   return post.caption || "";
 }
 
-async function publishMediaToPage({ fbPageId, accessToken, caption, mediaSource, mediaType, cachedMedia }) {
+async function publishMediaToPage({ fbPageId, accessToken, caption, mediaType, cachedMedia }) {
   const isVideo = mediaType === "video";
   const endpoint = isVideo
     ? `https://graph.facebook.com/v21.0/${fbPageId}/videos`
     : `https://graph.facebook.com/v21.0/${fbPageId}/photos`;
 
-  const { blob, filename, remoteUrl } = cachedMedia || (await resolveMediaBlob(mediaSource));
+  const { blob, filename } = cachedMedia;
   const formData = new FormData();
 
-  if (isVideo && remoteUrl) {
-    formData.append("file_url", remoteUrl);
-    if (caption) formData.append("description", caption);
-  } else {
-    formData.append("source", blob, filename);
-    if (caption) {
-      formData.append(isVideo ? "description" : "caption", caption);
-    }
+  formData.append("source", blob, filename);
+  if (caption) {
+    formData.append(isVideo ? "description" : "caption", caption);
   }
-
   formData.append("access_token", accessToken);
 
   const response = await fetch(endpoint, {
@@ -150,7 +238,6 @@ async function run() {
     const postRef = db.ref(`scheduledPosts/${postId}`);
     await postRef.update({ status: "processing", startedAt: Date.now() });
 
-    const mediaSource = post.mediaUrl || post.imageUrl;
     const mediaType =
       post.mediaType || (post.mimeType?.startsWith("video/") ? "video" : "image");
 
@@ -160,7 +247,7 @@ async function run() {
 
     let cachedMedia = null;
     try {
-      cachedMedia = await resolveMediaBlob(mediaSource);
+      cachedMedia = await resolveMediaBlob(post, mediaType);
     } catch (mediaErr) {
       const processedAt = Date.now();
       const failedResults = targetKeys.map((pageKey) => ({
@@ -182,49 +269,52 @@ async function run() {
     const results = [];
     let allSucceeded = true;
 
-    for (let i = 0; i < targetKeys.length; i++) {
-      const pageKey = targetKeys[i];
-      if (i > 0 && PAGE_POST_DELAY_MS > 0) {
-        await sleep(PAGE_POST_DELAY_MS);
-      }
+    try {
+      for (let i = 0; i < targetKeys.length; i++) {
+        const pageKey = targetKeys[i];
+        if (i > 0 && PAGE_POST_DELAY_MS > 0) {
+          await sleep(PAGE_POST_DELAY_MS);
+        }
 
-      const page = pages[pageKey];
-      if (!page) {
-        allSucceeded = false;
-        results.push({ pageKey, ok: false, error: "Page not found in fbPages" });
-        continue;
-      }
+        const page = pages[pageKey];
+        if (!page) {
+          allSucceeded = false;
+          results.push({ pageKey, ok: false, error: "Page not found in fbPages" });
+          continue;
+        }
 
-      const pageCaption = resolveCaptionForPage(post, pageKey, page);
+        const pageCaption = resolveCaptionForPage(post, pageKey, page);
 
-      try {
-        const fbRes = await publishMediaToPage({
-          fbPageId: page.fbPageId,
-          accessToken: page.accessToken,
-          caption: pageCaption,
-          mediaSource,
-          mediaType,
-          cachedMedia
-        });
-        results.push({
-          pageKey,
-          fbPageId: page.fbPageId,
-          pageName: page.pageName,
-          captionUsed: pageCaption,
-          ok: true,
-          postId: fbRes.post_id || fbRes.id || null
-        });
-      } catch (err) {
-        allSucceeded = false;
-        results.push({
-          pageKey,
-          fbPageId: page.fbPageId,
-          pageName: page.pageName,
-          captionUsed: pageCaption,
-          ok: false,
-          error: err.message
-        });
+        try {
+          const fbRes = await publishMediaToPage({
+            fbPageId: page.fbPageId,
+            accessToken: page.accessToken,
+            caption: pageCaption,
+            mediaType,
+            cachedMedia
+          });
+          results.push({
+            pageKey,
+            fbPageId: page.fbPageId,
+            pageName: page.pageName,
+            captionUsed: pageCaption,
+            ok: true,
+            postId: fbRes.post_id || fbRes.id || null
+          });
+        } catch (err) {
+          allSucceeded = false;
+          results.push({
+            pageKey,
+            fbPageId: page.fbPageId,
+            pageName: page.pageName,
+            captionUsed: pageCaption,
+            ok: false,
+            error: err.message
+          });
+        }
       }
+    } finally {
+      cleanupTempMedia(cachedMedia);
     }
 
     const processedAt = Date.now();
