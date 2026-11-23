@@ -26,17 +26,40 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function extractFirstUrl(text = "") {
+  const match = String(text).match(/https?:\/\/[^\s<>"']+/i);
+  return match ? match[0].trim() : "";
+}
+
+function resolveLinkUrl(post) {
+  const explicit = (post.linkUrl || post.shareUrl || post.url || "").trim();
+  if (/^https?:\/\//i.test(explicit)) return explicit;
+  return extractFirstUrl(post.caption || "");
+}
+
+function isLinkPost(post, mediaType) {
+  return (
+    mediaType === "link" ||
+    post.postType === "link" ||
+    Boolean((post.linkUrl || post.shareUrl || "").trim())
+  );
+}
+
 function isTextPost(post, mediaType) {
   return (
-    mediaType === "text" ||
-    mediaType === "text_only" ||
-    post.postType === "text" ||
-    post.postType === "text_only" ||
-    post.mimeType === "text/plain"
+    !isLinkPost(post, mediaType) &&
+    (mediaType === "text" ||
+      mediaType === "text_only" ||
+      post.postType === "text" ||
+      post.postType === "text_only" ||
+      post.mimeType === "text/plain")
   );
 }
 
 function detectMediaType(post) {
+  if (isLinkPost(post, post.mediaType)) {
+    return "link";
+  }
   if (
     post.mediaType === "text" ||
     post.mediaType === "text_only" ||
@@ -114,7 +137,7 @@ async function downloadVideoWithYtDlp(url, tempDir) {
 }
 
 async function resolveMediaBlob(post, mediaType) {
-  if (isTextPost(post, mediaType)) {
+  if (isTextPost(post, mediaType) || isLinkPost(post, mediaType)) {
     return null;
   }
 
@@ -214,10 +237,45 @@ function resolveCaptionForPage(post, pageKey, page) {
   return (post.caption || "").trim();
 }
 
-async function publishMediaToPage({ fbPageId, accessToken, caption, mediaType, cachedMedia }) {
-  const textOnly = isTextPost({ mediaType }, mediaType);
+async function publishMediaToPage({
+  fbPageId,
+  accessToken,
+  caption,
+  mediaType,
+  linkUrl,
+  cachedMedia
+}) {
+  if (mediaType === "link") {
+    const targetLink = (linkUrl || extractFirstUrl(caption)).trim();
+    if (!targetLink) {
+      throw new Error("Link post is missing a valid http(s) URL.");
+    }
 
-  if (textOnly) {
+    const endpoint = `https://graph.facebook.com/v21.0/${fbPageId}/feed`;
+    const params = new URLSearchParams({
+      link: targetLink,
+      access_token: accessToken
+    });
+    if ((caption || "").trim()) {
+      params.set("message", caption.trim());
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: params
+    });
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error?.message || `Facebook API error (${response.status})`);
+    }
+    return data;
+  }
+
+  if (mediaType === "text") {
     const trimmedMessage = (caption || "").trim();
     if (!trimmedMessage) {
       throw new Error("Text-only post has empty message text.");
@@ -304,6 +362,7 @@ async function run() {
     await postRef.update({ status: "processing", startedAt: Date.now() });
 
     const mediaType = detectMediaType(post);
+    const linkUrl = mediaType === "link" ? resolveLinkUrl(post) : "";
 
     const targetKeys = Array.isArray(post.targetPages)
       ? post.targetPages
@@ -355,6 +414,7 @@ async function run() {
             accessToken: page.accessToken,
             caption: pageCaption,
             mediaType,
+            linkUrl,
             cachedMedia
           });
           results.push({
@@ -394,6 +454,7 @@ async function run() {
       await db.ref("postedHistory").push({
         sourcePostId: postId,
         caption: post.caption || "",
+        linkUrl: linkUrl || "",
         valueAddEnabled: Boolean(post.valueAddEnabled),
         mediaType,
         fileName: post.fileName || "",
