@@ -119,13 +119,32 @@
     .processing { background: #cce5ff; color: #004085; }
     .posted { background: #d4edda; color: #155724; }
     .failed { background: #f8d7da; color: #721c24; }
-    .hidden { display: none; }
+    .hidden { display: none !important; }
     .preview-media {
       max-width: 100%;
-      max-height: 240px;
+      max-height: 260px;
       border-radius: 8px;
       margin-bottom: 12px;
       display: none;
+    }
+    .preview-iframe {
+      width: 100%;
+      height: 260px;
+      border: 0;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      background: #000;
+      display: none;
+    }
+    .source-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      background: #e7f3ff;
+      color: #1877f2;
     }
     .thumb {
       width: 54px;
@@ -138,8 +157,10 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
+      text-align: center;
+      padding: 2px;
     }
     .item-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .error-text {
@@ -247,29 +268,32 @@
 
       <!-- 2. VIDEO URL OR IMAGE UPLOAD (RTDB ONLY) -->
       <div class="card">
-        <h2>2. Schedule Video (by URL) or Image (to Realtime DB)</h2>
+        <h2>2. Schedule Video (Any Shareable Link) or Image (to Realtime DB)</h2>
         <small>
-          Because Firebase Storage is disabled, <strong>videos are saved by direct URL</strong> in Realtime Database,
-          while <strong>images</strong> are compressed and saved directly to Realtime Database.
+          Supports <strong>YouTube, TikTok, Facebook, Instagram, Google Drive, Dropbox</strong>, or direct <code>.mp4</code> URLs.
+          Images are compressed and saved directly to Realtime Database.
         </small>
 
         <label style="display:block; margin-top:10px;"><strong>Media Type</strong></label>
         <select id="mediaModeSelect">
-          <option value="video">Video (Direct Video URL)</option>
+          <option value="video">Video (YouTube, TikTok, Facebook, Drive, Direct URL)</option>
           <option value="image">Image (Upload to Realtime DB)</option>
         </select>
 
         <!-- VIDEO URL INPUTS -->
         <div id="videoUrlSection">
-          <label><strong>Direct Video URL (.mp4 / hosted link)</strong></label>
+          <label><strong>Shareable Video Link</strong></label>
           <input
             type="url"
             id="videoUrlInput"
-            placeholder="https://example.com/my-video.mp4"
+            placeholder="Paste YouTube, TikTok, Facebook, Google Drive, or .mp4 link..."
           />
+          <div id="detectedSourceBadge" class="source-pill hidden"></div>
+
           <label><strong>Optional: Pick Local Video to Preview &amp; Read File Info</strong></label>
           <input type="file" id="videoLocalPreviewInput" accept="video/*" />
           <video id="videoPreview" class="preview-media" controls></video>
+          <iframe id="socialVideoIframe" class="preview-iframe" allowfullscreen></iframe>
         </div>
 
         <!-- IMAGE FILE INPUTS -->
@@ -416,6 +440,7 @@
     const videoUrlSection = document.getElementById("videoUrlSection");
     const imageUploadSection = document.getElementById("imageUploadSection");
     const videoUrlInput = document.getElementById("videoUrlInput");
+    const detectedSourceBadge = document.getElementById("detectedSourceBadge");
     const videoLocalPreviewInput = document.getElementById("videoLocalPreviewInput");
     const imageFileInput = document.getElementById("imageFileInput");
     const fastCompressCheckbox = document.getElementById("fastCompressCheckbox");
@@ -423,6 +448,7 @@
     const scheduleDateTimeInput = document.getElementById("scheduleDateTimeInput");
     const imagePreview = document.getElementById("imagePreview");
     const videoPreview = document.getElementById("videoPreview");
+    const socialVideoIframe = document.getElementById("socialVideoIframe");
     const statusMessage = document.getElementById("statusMessage");
 
     let listenersStarted = false;
@@ -441,6 +467,163 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    }
+
+    /**
+     * Parses any shareable video link (YouTube, TikTok, Facebook, Instagram,
+     * Google Drive, Dropbox, Vimeo, X/Twitter, or direct video file).
+     */
+    function analyzeVideoUrl(rawUrl) {
+      const cleanUrl = (rawUrl || "").trim();
+      if (!cleanUrl || !/^https?:\/\//i.test(cleanUrl)) {
+        return null;
+      }
+
+      let parsed;
+      try {
+        parsed = new URL(cleanUrl);
+      } catch {
+        return null;
+      }
+
+      const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+      const path = parsed.pathname;
+
+      // 1. YouTube (watch, shorts, youtu.be, embed, live)
+      if (host === "youtu.be" || host.endsWith("youtube.com")) {
+        let videoId = "";
+        if (host === "youtu.be") {
+          videoId = path.split("/").filter(Boolean)[0] || "";
+        } else if (path.startsWith("/shorts/")) {
+          videoId = path.split("/")[2] || "";
+        } else if (path.startsWith("/embed/") || path.startsWith("/live/")) {
+          videoId = path.split("/")[2] || "";
+        } else {
+          videoId = parsed.searchParams.get("v") || "";
+        }
+
+        return {
+          sourceType: "youtube",
+          label: "YouTube Video",
+          originalUrl: cleanUrl,
+          resolvedUrl: cleanUrl,
+          embedUrl: videoId ? `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` : "",
+          previewMode: videoId ? "iframe" : "badge",
+          requiresExtractor: true
+        };
+      }
+
+      // 2. TikTok (full link or vm.tiktok.com / vt.tiktok.com short link)
+      if (host.endsWith("tiktok.com")) {
+        const match = path.match(/\/video\/(\d+)/);
+        const videoId = match ? match[1] : "";
+        return {
+          sourceType: "tiktok",
+          label: "TikTok Video",
+          originalUrl: cleanUrl,
+          resolvedUrl: cleanUrl,
+          embedUrl: videoId ? `https://www.tiktok.com/embed/v2/${videoId}` : "",
+          previewMode: videoId ? "iframe" : "badge",
+          requiresExtractor: true
+        };
+      }
+
+      // 3. Facebook (watch, reel, video, fb.watch, share/v, share/r)
+      if (host.endsWith("facebook.com") || host === "fb.watch") {
+        const embedUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(cleanUrl)}&show_text=false`;
+        return {
+          sourceType: "facebook",
+          label: "Facebook Video / Reel",
+          originalUrl: cleanUrl,
+          resolvedUrl: cleanUrl,
+          embedUrl,
+          previewMode: "iframe",
+          requiresExtractor: true
+        };
+      }
+
+      // 4. Instagram (Reels / Posts)
+      if (host.endsWith("instagram.com")) {
+        return {
+          sourceType: "instagram",
+          label: "Instagram Reel / Video",
+          originalUrl: cleanUrl,
+          resolvedUrl: cleanUrl,
+          embedUrl: "",
+          previewMode: "badge",
+          requiresExtractor: true
+        };
+      }
+
+      // 5. X / Twitter
+      if (host === "x.com" || host === "twitter.com") {
+        return {
+          sourceType: "twitter",
+          label: "X (Twitter) Video",
+          originalUrl: cleanUrl,
+          resolvedUrl: cleanUrl,
+          embedUrl: "",
+          previewMode: "badge",
+          requiresExtractor: true
+        };
+      }
+
+      // 6. Google Drive share link -> convert to direct download URL
+      if (host === "drive.google.com") {
+        const fileMatch = path.match(/\/file\/d\/([^/]+)/);
+        const fileId = fileMatch ? fileMatch[1] : parsed.searchParams.get("id");
+        const directDriveUrl = fileId
+          ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
+          : cleanUrl;
+        return {
+          sourceType: "gdrive",
+          label: "Google Drive Video",
+          originalUrl: cleanUrl,
+          resolvedUrl: directDriveUrl,
+          embedUrl: "",
+          previewMode: "video",
+          requiresExtractor: false
+        };
+      }
+
+      // 7. Dropbox share link -> force dl=1
+      if (host.endsWith("dropbox.com")) {
+        const dbUrl = new URL(cleanUrl);
+        dbUrl.searchParams.set("dl", "1");
+        return {
+          sourceType: "dropbox",
+          label: "Dropbox Video",
+          originalUrl: cleanUrl,
+          resolvedUrl: dbUrl.toString(),
+          embedUrl: "",
+          previewMode: "video",
+          requiresExtractor: false
+        };
+      }
+
+      // 8. Direct video file (.mp4, .mov, .webm, .m4v, .mkv)
+      if (/\.(mp4|mov|webm|m4v|mkv|ogg)(\?.*)?$/i.test(cleanUrl)) {
+        return {
+          sourceType: "direct",
+          label: "Direct Video File",
+          originalUrl: cleanUrl,
+          resolvedUrl: cleanUrl,
+          embedUrl: "",
+          previewMode: "video",
+          requiresExtractor: false
+        };
+      }
+
+      // 9. Any other shareable video webpage (Vimeo, Dailymotion, Streamable, etc.)
+      return {
+        sourceType: "web_link",
+        label: `Shareable Video Link (${host})`,
+        originalUrl: cleanUrl,
+        resolvedUrl: cleanUrl,
+        embedUrl: "",
+        previewMode: "badge",
+        requiresExtractor: true
+      };
     }
 
     function buildStarterNote(pageName, index) {
@@ -560,8 +743,11 @@
       }
       imagePreview.style.display = "none";
       videoPreview.style.display = "none";
+      socialVideoIframe.style.display = "none";
+      detectedSourceBadge.classList.add("hidden");
       imagePreview.removeAttribute("src");
       videoPreview.removeAttribute("src");
+      socialVideoIframe.removeAttribute("src");
       selectedLocalVideoMeta = null;
     }
 
@@ -774,14 +960,28 @@
 
     videoUrlInput.addEventListener("input", () => {
       if (videoLocalPreviewInput.files[0]) return;
-      const url = videoUrlInput.value.trim();
-      if (!url) {
-        videoPreview.style.display = "none";
-        videoPreview.removeAttribute("src");
+      const info = analyzeVideoUrl(videoUrlInput.value);
+
+      videoPreview.style.display = "none";
+      videoPreview.removeAttribute("src");
+      socialVideoIframe.style.display = "none";
+      socialVideoIframe.removeAttribute("src");
+
+      if (!info) {
+        detectedSourceBadge.classList.add("hidden");
         return;
       }
-      videoPreview.src = url;
-      videoPreview.style.display = "block";
+
+      detectedSourceBadge.textContent = `Detected: ${info.label}`;
+      detectedSourceBadge.classList.remove("hidden");
+
+      if (info.previewMode === "video") {
+        videoPreview.src = info.resolvedUrl;
+        videoPreview.style.display = "block";
+      } else if (info.previewMode === "iframe" && info.embedUrl) {
+        socialVideoIframe.src = info.embedUrl;
+        socialVideoIframe.style.display = "block";
+      }
     });
 
     imageFileInput.addEventListener("change", () => {
@@ -883,18 +1083,25 @@
         let payload;
 
         if (mode === "video") {
-          const videoUrl = videoUrlInput.value.trim();
-          if (!videoUrl || !/^https?:\/\//i.test(videoUrl)) {
-            alert("Please enter a valid http:// or https:// video URL.");
+          const videoInfo = analyzeVideoUrl(videoUrlInput.value);
+          if (!videoInfo) {
+            alert("Please enter a valid http:// or https:// video link.");
             return;
           }
-          statusMessage.textContent = "Saving video URL to Realtime Database...";
+          statusMessage.textContent = `Saving ${videoInfo.label} to Realtime Database...`;
 
           payload = {
             mediaType: "video",
-            mediaUrl: videoUrl,
-            videoUrl,
-            fileName: selectedLocalVideoMeta?.fileName || videoUrl.split("/").pop()?.split("?")[0] || "video.mp4",
+            videoSourceType: videoInfo.sourceType,
+            videoSourceLabel: videoInfo.label,
+            requiresExtractor: videoInfo.requiresExtractor,
+            originalVideoUrl: videoInfo.originalUrl,
+            mediaUrl: videoInfo.resolvedUrl,
+            videoUrl: videoInfo.resolvedUrl,
+            fileName:
+              selectedLocalVideoMeta?.fileName ||
+              videoInfo.resolvedUrl.split("/").pop()?.split("?")[0] ||
+              `${videoInfo.sourceType}_video.mp4`,
             fileSize: selectedLocalVideoMeta?.fileSize || 0,
             mimeType: selectedLocalVideoMeta?.mimeType || "video/mp4",
             caption,
@@ -1029,10 +1236,12 @@
         const timeText = new Date(post.scheduledTime).toLocaleString();
         const isVideo = post.mediaType === "video" || post.mimeType?.startsWith("video/");
         const safeSrc = escapeHtml(post.mediaUrl || "");
+        const badgeTag = (post.videoSourceType || "VIDEO").toUpperCase();
         const thumbHtml = isVideo
-          ? `<div class="thumb">VIDEO</div>`
+          ? `<div class="thumb">${escapeHtml(badgeTag)}</div>`
           : `<img src="${safeSrc}" class="thumb" alt="Post" />`;
         const sizeMb = post.fileSize ? ` • ${(post.fileSize / (1024 * 1024)).toFixed(1)} MB` : "";
+        const sourceDesc = isVideo ? (post.videoSourceLabel || "Video URL") : "Image";
         const errSummary = post.status === "failed" ? formatFailureReasons(post.publishResults) : "";
         const varSummary = formatVariationSummary(post);
 
@@ -1041,7 +1250,7 @@
             ${thumbHtml}
             <div>
               <strong>${escapeHtml(post.caption || "(No caption)")}</strong><br />
-              <small>${isVideo ? "Video URL" : "Image"}${escapeHtml(sizeMb)} • ${escapeHtml(timeText)} • Pages: ${escapeHtml(formatPageNames(post.targetPages))}</small>
+              <small>${escapeHtml(sourceDesc)}${escapeHtml(sizeMb)} • ${escapeHtml(timeText)} • Pages: ${escapeHtml(formatPageNames(post.targetPages))}</small>
               ${varSummary ? `<span class="var-preview">${escapeHtml(varSummary)}</span>` : ""}
               ${errSummary ? `<span class="error-text">${escapeHtml(errSummary)}</span>` : ""}
             </div>
@@ -1071,6 +1280,7 @@
           source: "queue",
           caption: post.caption,
           mediaType: post.mediaType || (post.mimeType?.startsWith("video/") ? "video" : "image"),
+          videoSourceLabel: post.videoSourceLabel,
           fileName: post.fileName,
           targetPages: post.targetPages,
           postedAt: post.processedAt || post.scheduledTime || Date.now()
@@ -1089,7 +1299,7 @@
         const row = document.createElement("div");
         row.className = "list-item";
         const postedTime = new Date(item.postedAt || Date.now()).toLocaleString();
-        const mediaLabel = item.mediaType === "video" ? "Video" : "Image";
+        const mediaLabel = item.mediaType === "video" ? (item.videoSourceLabel || "Video") : "Image";
 
         row.innerHTML = `
           <div class="item-left">
