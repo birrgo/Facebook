@@ -3,6 +3,13 @@ name: Autoposter
 on:
   workflow_dispatch:
 
+concurrency:
+  group: fb-autoposter-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -10,17 +17,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yt-dlp and ffmpeg
+        run: |
+          python3 -m pip install --upgrade pip yt-dlp
+          sudo apt-get update -y && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install Node dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f package.json ]; then
+            npm install
+          else
+            npm init -y && npm install firebase-admin
+          fi
 
       - name: Run Facebook poster worker
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
-          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL || 'https://facebook-d49ac-default-rtdb.firebaseio.com' }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET || 'facebook-d49ac.firebasestorage.app' }}
         run: node poster.js
