@@ -12,7 +12,7 @@ const databaseURL = process.env.FIREBASE_DATABASE_URL;
 const storageBucketName =
   process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`;
 const PAGE_POST_DELAY_MS = Number(process.env.PAGE_POST_DELAY_MS || 4000);
-const GRAPH_API_VERSION = "v21.0";
+const GRAPH_API_VERSION = "v22.0";
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -311,47 +311,128 @@ function extractFbSettings(post) {
   };
 }
 
+/**
+ * Multi-strategy Place search to resolve OpenStreetMap/GPS location to a Facebook Place ID.
+ */
 async function resolveFacebookPlaceId({ accessToken, fbSettings }) {
   const { location, locationData } = fbSettings;
   if (!location && !locationData) return null;
 
-  try {
-    const queryTerm = (
-      locationData?.city ||
-      location.split(",")[0] ||
-      location
-    ).trim();
+  const cityPart = (locationData?.city || location.split(",")[0] || "").trim();
+  const fullPart = location.trim();
+  const hasCoords =
+    typeof locationData?.lat === "number" && typeof locationData?.lon === "number";
 
-    const searchParams = new URLSearchParams({
-      type: "place",
-      fields: "id,name,location",
-      limit: "5",
-      access_token: accessToken
-    });
+  const attempts = [];
+  if (cityPart && hasCoords) {
+    attempts.push({ q: cityPart, center: `${locationData.lat},${locationData.lon}`, distance: "10000" });
+  }
+  if (cityPart) {
+    attempts.push({ q: cityPart });
+  }
+  if (fullPart && fullPart !== cityPart) {
+    attempts.push({ q: fullPart });
+  }
+  if (hasCoords) {
+    attempts.push({ center: `${locationData.lat},${locationData.lon}`, distance: "5000" });
+  }
 
-    if (queryTerm) {
-      searchParams.set("q", queryTerm);
-    }
-    if (
-      typeof locationData?.lat === "number" &&
-      typeof locationData?.lon === "number"
-    ) {
-      searchParams.set("center", `${locationData.lat},${locationData.lon}`);
-      searchParams.set("distance", "5000");
-    }
+  for (const attempt of attempts) {
+    try {
+      const searchParams = new URLSearchParams({
+        type: "place",
+        fields: "id,name,location",
+        limit: "5",
+        access_token: accessToken
+      });
+      if (attempt.q) searchParams.set("q", attempt.q);
+      if (attempt.center) {
+        searchParams.set("center", attempt.center);
+        searchParams.set("distance", attempt.distance || "5000");
+      }
 
-    const res = await fetch(
-      `https://graph.facebook.com/${GRAPH_API_VERSION}/search?${searchParams.toString()}`
-    );
-    const data = await res.json();
-    if (res.ok && Array.isArray(data.data) && data.data.length > 0) {
+      const res = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/search?${searchParams.toString()}`
+      );
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.data) && data.data.length > 0) {
+        return {
+          placeId: String(data.data[0].id),
+          placeName: data.data[0].name || location
+        };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * Maps structured Feeling/Activity codes to native Facebook Open Graph action/object IDs.
+ */
+function resolveOpenGraphFeeling(fbSettings) {
+  const code = (fbSettings.feelingCode || "").toUpperCase();
+  if (!code) return null;
+
+  const actionTypeMap = {
+    FEELING: "383634835006146",
+    WATCHING: "147835065352116",
+    LISTENING: "310676095689897",
+    CELEBRATING: "418560224899640",
+    SUPPORTING: "1420319874903025",
+    TRAVELING: "160318864112645",
+    EATING: "272399136194265"
+  };
+
+  const feelingObjectMap = {
+    HAPPY: "383634835006146",
+    BLESSED: "1403437283219707",
+    LOVED: "361634210574916",
+    EXCITED: "323508924395575",
+    GRATEFUL: "494809643881548",
+    THANKFUL: "494809643881548",
+    INSPIRED: "139511126227034",
+    MOTIVATED: "1411457535733557",
+    PROUD: "460634227319866",
+    PEACEFUL: "1411462409066403",
+    HOPEFUL: "447290988672067",
+    JOYFUL: "383634835006146",
+    CONFIDENT: "450868191651613",
+    AMAZED: "374351159315239",
+    CURIOUS: "138087279701476",
+    THOUGHTFUL: "349824911776007",
+    FOCUSED: "1411457535733557",
+    DETERMINED: "1411457535733557",
+    CREATIVE: "139511126227034",
+    ENERGETIC: "444621768913778",
+    RELAXED: "338800542862939",
+    OPTIMISTIC: "447290988672067",
+    CONTENT: "354328114653744",
+    CHEERFUL: "383634835006146",
+    NOSTALGIC: "418802221521059",
+    HUMBLE: "1411462409066403",
+    BRAVE: "1411457535733557",
+    STRONG: "444621768913778",
+    WONDERFUL: "383634835006146",
+    FANTASTIC: "383634835006146",
+    AWESOME: "383634835006146",
+    SAD: "336031936473389",
+    TIRED: "390744237645990",
+    HUNGRY: "375240415858525",
+    BUSY: "1411457535733557"
+  };
+
+  if (code.startsWith("FEELING_")) {
+    const baseKey = code
+      .replace(/^FEELING_/, "")
+      .replace(/_(MORNING|TONIGHT|WEEKEND|TODAY)$/, "");
+    const objectId = feelingObjectMap[baseKey];
+    if (objectId) {
       return {
-        placeId: String(data.data[0].id),
-        placeName: data.data[0].name || location
+        og_action_type_id: actionTypeMap.FEELING,
+        og_object_id: objectId
       };
     }
-  } catch (err) {
-    console.warn(`Facebook Place lookup skipped (${location}): ${err.message}`);
   }
 
   return null;
@@ -427,67 +508,69 @@ async function publishFeedToPage({
 }) {
   const validTags = fbSettings.taggedIds.filter((id) => id !== String(fbPageId));
   const descriptionText = buildDescriptionOnly(caption);
+  const ogFeeling = resolveOpenGraphFeeling(fbSettings);
 
-  if (mediaType === "link") {
-    const targetLink = (linkUrl || extractFirstUrl(caption)).trim();
-    if (!targetLink) {
+  if (mediaType === "link" || mediaType === "text") {
+    const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/feed`;
+    const targetLink = mediaType === "link" ? (linkUrl || extractFirstUrl(caption)).trim() : "";
+
+    if (mediaType === "link" && !targetLink) {
       throw new Error("Link post is missing a valid http(s) URL.");
     }
-
-    const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/feed`;
-    const params = new URLSearchParams({
-      link: targetLink,
-      published: String(fbSettings.published),
-      access_token: accessToken
-    });
-    if (descriptionText) {
-      params.set("message", descriptionText);
-    }
-    if (resolvedPlace?.placeId) {
-      params.set("place", resolvedPlace.placeId);
-      if (validTags.length > 0) {
-        params.set("tags", validTags.join(","));
-      }
-    }
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params
-    });
-
-    const data = await response.json();
-    if (!response.ok || data.error) {
-      throw new Error(data.error?.message || `Facebook Feed API error (${response.status})`);
-    }
-    return data;
-  }
-
-  if (mediaType === "text") {
-    if (!descriptionText) {
+    if (mediaType === "text" && !descriptionText) {
       throw new Error("Text-only post has empty message text.");
     }
 
-    const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/feed`;
-    const body = new URLSearchParams({
-      message: descriptionText,
-      published: String(fbSettings.published),
-      access_token: accessToken
-    });
-    if (resolvedPlace?.placeId) {
-      body.set("place", resolvedPlace.placeId);
-      if (validTags.length > 0) {
-        body.set("tags", validTags.join(","));
-      }
-    }
+    const buildParams = ({ includeOg = true, includePlaceAndTags = true } = {}) => {
+      const params = new URLSearchParams({
+        published: String(fbSettings.published),
+        access_token: accessToken
+      });
+      if (targetLink) params.set("link", targetLink);
+      if (descriptionText) params.set("message", descriptionText);
 
-    const response = await fetch(endpoint, {
+      if (includePlaceAndTags && resolvedPlace?.placeId) {
+        params.set("place", resolvedPlace.placeId);
+        if (validTags.length > 0) {
+          params.set("tags", validTags.join(","));
+        }
+      }
+
+      if (includeOg && ogFeeling) {
+        params.set("og_action_type_id", ogFeeling.og_action_type_id);
+        params.set("og_object_id", ogFeeling.og_object_id);
+      }
+
+      return params;
+    };
+
+    let response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body
+      body: buildParams({ includeOg: true, includePlaceAndTags: true })
     });
+    let data = await response.json();
 
-    const data = await response.json();
+    // Retry without Open Graph feeling params if rejected by Graph API
+    if ((!response.ok || data.error) && ogFeeling) {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: buildParams({ includeOg: false, includePlaceAndTags: true })
+      });
+      data = await response.json();
+    }
+
+    // Retry without place/tags if page token lacks tagging/place permissions
+    if ((!response.ok || data.error) && (resolvedPlace?.placeId || validTags.length > 0)) {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: buildParams({ includeOg: false, includePlaceAndTags: false })
+      });
+      data = await response.json();
+    }
+
     if (!response.ok || data.error) {
       throw new Error(data.error?.message || `Facebook Feed API error (${response.status})`);
     }
@@ -500,52 +583,72 @@ async function publishFeedToPage({
     : `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/photos`;
 
   const { blob, filename } = cachedMedia;
-  const formData = new FormData();
 
-  formData.append("source", blob, filename);
-  if (descriptionText) {
-    formData.append(isVideo ? "description" : "caption", descriptionText);
-  }
-  formData.append("published", String(fbSettings.published));
-
-  if (resolvedPlace?.placeId) {
-    formData.append("place", resolvedPlace.placeId);
-  }
-
-  if (!isVideo && validTags.length > 0) {
-    formData.append(
-      "tags",
-      JSON.stringify(validTags.map((id) => ({ tag_uid: id })))
-    );
-  }
-
-  if (isVideo) {
-    if (fbSettings.playlist) {
-      formData.append("title", fbSettings.playlist.replace(/_/g, " "));
+  const buildMediaForm = ({
+    includePlace = true,
+    includeTags = true,
+    includeCollab = true,
+    includeOg = true
+  } = {}) => {
+    const formData = new FormData();
+    formData.append("source", blob, filename);
+    if (descriptionText) {
+      formData.append(isVideo ? "description" : "caption", descriptionText);
     }
-    if (fbSettings.collaboratorPageId && fbSettings.collaboratorPageId !== String(fbPageId)) {
-      formData.append("collaborator_id", fbSettings.collaboratorPageId);
-    }
-  }
+    formData.append("published", String(fbSettings.published));
 
-  formData.append("access_token", accessToken);
+    if (includePlace && resolvedPlace?.placeId) {
+      formData.append("place", resolvedPlace.placeId);
+    }
+
+    if (!isVideo && includeTags && validTags.length > 0) {
+      formData.append(
+        "tags",
+        JSON.stringify(validTags.map((id) => ({ tag_uid: id })))
+      );
+    }
+
+    if (includeOg && ogFeeling) {
+      formData.append("og_action_type_id", ogFeeling.og_action_type_id);
+      formData.append("og_object_id", ogFeeling.og_object_id);
+    }
+
+    if (isVideo) {
+      if (fbSettings.playlist) {
+        formData.append("title", fbSettings.playlist.replace(/_/g, " "));
+      }
+      if (
+        includeCollab &&
+        fbSettings.collaboratorPageId &&
+        fbSettings.collaboratorPageId !== String(fbPageId)
+      ) {
+        formData.append("collaborator_id", fbSettings.collaboratorPageId);
+      }
+    }
+
+    formData.append("access_token", accessToken);
+    return formData;
+  };
 
   let response = await fetch(endpoint, {
     method: "POST",
-    body: formData
+    body: buildMediaForm({ includePlace: true, includeTags: true, includeCollab: true, includeOg: true })
   });
   let data = await response.json();
 
-  if ((!response.ok || data.error) && isVideo && fbSettings.collaboratorPageId) {
-    const retryForm = new FormData();
-    retryForm.append("source", blob, filename);
-    if (descriptionText) retryForm.append("description", descriptionText);
-    retryForm.append("published", String(fbSettings.published));
-    if (resolvedPlace?.placeId) retryForm.append("place", resolvedPlace.placeId);
-    if (fbSettings.playlist) retryForm.append("title", fbSettings.playlist.replace(/_/g, " "));
-    retryForm.append("access_token", accessToken);
+  if (!response.ok || data.error) {
+    response = await fetch(endpoint, {
+      method: "POST",
+      body: buildMediaForm({ includePlace: true, includeTags: true, includeCollab: false, includeOg: false })
+    });
+    data = await response.json();
+  }
 
-    response = await fetch(endpoint, { method: "POST", body: retryForm });
+  if (!response.ok || data.error) {
+    response = await fetch(endpoint, {
+      method: "POST",
+      body: buildMediaForm({ includePlace: false, includeTags: false, includeCollab: false, includeOg: false })
+    });
     data = await response.json();
   }
 
@@ -565,7 +668,6 @@ async function publishReelToPage({
 }) {
   const { buffer } = cachedMedia;
   const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/video_reels`;
-
   const descriptionText = buildDescriptionOnly(caption);
 
   const startRes = await fetch(endpoint, {
@@ -596,7 +698,7 @@ async function publishReelToPage({
     throw new Error(uploadData.error?.message || `Reel binary upload failed (${uploadRes.status})`);
   }
 
-  const buildFinishParams = (includeCollab = true) => {
+  const buildFinishParams = ({ includeCollab = true, includePlace = true } = {}) => {
     const finishParams = new URLSearchParams({
       upload_phase: "finish",
       video_id: startData.video_id,
@@ -609,7 +711,7 @@ async function publishReelToPage({
     if (fbSettings.playlist) {
       finishParams.set("title", fbSettings.playlist.replace(/_/g, " "));
     }
-    if (resolvedPlace?.placeId) {
+    if (includePlace && resolvedPlace?.placeId) {
       finishParams.set("place", resolvedPlace.placeId);
     }
     if (
@@ -625,15 +727,24 @@ async function publishReelToPage({
   let finishRes = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: buildFinishParams(true)
+    body: buildFinishParams({ includeCollab: true, includePlace: true })
   });
   let finishData = await finishRes.json();
 
-  if ((!finishRes.ok || finishData.error) && fbSettings.collaboratorPageId) {
+  if (!finishRes.ok || finishData.error) {
     finishRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: buildFinishParams(false)
+      body: buildFinishParams({ includeCollab: false, includePlace: true })
+    });
+    finishData = await finishRes.json();
+  }
+
+  if (!finishRes.ok || finishData.error) {
+    finishRes = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: buildFinishParams({ includeCollab: false, includePlace: false })
     });
     finishData = await finishRes.json();
   }
