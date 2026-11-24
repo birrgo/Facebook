@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import os from "node:os"; 
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -39,11 +39,23 @@ function resolveLinkUrl(post) {
 }
 
 function resolveDestinations(post) {
-  const feed = post.destinations?.feed ?? post.postToFeed ?? true;
-  const stories = post.destinations?.stories ?? post.postToStories ?? false;
+  const repostFeedToStories = Boolean(
+    post.destinations?.repostFeedToStories ?? post.repostFeedToStories ?? false
+  );
+  const feed = Boolean(
+    (post.destinations?.feed ?? post.postToFeed ?? true) || repostFeedToStories
+  );
+  const directStories = Boolean(
+    post.destinations?.stories ?? post.postToStories ?? false
+  );
+  // Mutual exclusion: choose 1 of 2 between direct Stories and Repost Feed to Stories
+  const stories = repostFeedToStories ? false : directStories;
+
   return {
-    feed: Boolean(feed),
-    stories: Boolean(stories)
+    feed,
+    stories,
+    repostFeedToStories,
+    publishToStories: stories || repostFeedToStories
   };
 }
 
@@ -112,7 +124,10 @@ function isDirectVideoUrl(url = "") {
 }
 
 async function downloadVideoWithYtDlp(url, tempDir) {
-  const baseTemplate = path.join(tempDir, `ytdlp_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+  const baseTemplate = path.join(
+    tempDir,
+    `ytdlp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  );
   const expectedMp4 = `${baseTemplate}.mp4`;
 
   await execFileAsync(
@@ -483,6 +498,11 @@ async function publishToPageTargets({
   const outcome = {
     feedPostId: null,
     storyPostId: null,
+    storyMode: destinations.repostFeedToStories
+      ? "repost_feed_to_stories"
+      : destinations.stories
+        ? "direct_stories"
+        : "none",
     storySkipped: false
   };
   const errors = [];
@@ -503,18 +523,22 @@ async function publishToPageTargets({
     }
   }
 
-  if (destinations.stories) {
+  if (destinations.publishToStories) {
+    const storyLabel = destinations.repostFeedToStories ? "Repost Feed to Stories" : "Stories";
     const supportsStories = mediaType === "image" || mediaType === "video";
-    if (!supportsStories) {
+
+    if (destinations.repostFeedToStories && destinations.feed && !outcome.feedPostId) {
+      errors.push(`${storyLabel}: Skipped because Feed post failed.`);
+    } else if (!supportsStories) {
       if (!destinations.feed) {
-        errors.push("Stories: Facebook Stories require an image or video.");
+        errors.push(`${storyLabel}: Facebook Stories require an image or video.`);
       } else {
         outcome.storySkipped = true;
       }
     } else {
       try {
         if (destinations.feed) {
-          await sleep(1000);
+          await sleep(1500);
         }
         const storyRes = await publishStoryToPage({
           fbPageId,
@@ -524,7 +548,7 @@ async function publishToPageTargets({
         });
         outcome.storyPostId = storyRes.post_id || storyRes.id || storyRes.video_id || null;
       } catch (err) {
-        errors.push(`Stories: ${err.message}`);
+        errors.push(`${storyLabel}: ${err.message}`);
       }
     }
   }
@@ -577,14 +601,14 @@ async function run() {
       ? post.targetPages
       : Object.values(post.targetPages || {});
 
-    if (!destinations.feed && !destinations.stories) {
+    if (!destinations.feed && !destinations.publishToStories) {
       const processedAt = Date.now();
       const failedResults = targetKeys.map((pageKey) => ({
         pageKey,
         fbPageId: pages[pageKey]?.fbPageId || null,
         pageName: pages[pageKey]?.pageName || null,
         ok: false,
-        error: "No publish destination enabled (both Feed and Stories are false)."
+        error: "No publish destination enabled (Feed, Stories, and Repost Feed to Stories are all false)."
       }));
 
       await postRef.update({
@@ -650,11 +674,16 @@ async function run() {
             fbPageId: page.fbPageId,
             pageName: page.pageName,
             captionUsed: pageCaption,
-            destinations,
+            destinations: {
+              feed: destinations.feed,
+              stories: destinations.stories,
+              repostFeedToStories: destinations.repostFeedToStories
+            },
             ok: true,
             postId: fbOutcome.feedPostId || fbOutcome.storyPostId || null,
             feedPostId: fbOutcome.feedPostId,
             storyPostId: fbOutcome.storyPostId,
+            storyMode: fbOutcome.storyMode,
             storySkipped: fbOutcome.storySkipped
           });
         } catch (err) {
@@ -664,7 +693,11 @@ async function run() {
             fbPageId: page.fbPageId,
             pageName: page.pageName,
             captionUsed: pageCaption,
-            destinations,
+            destinations: {
+              feed: destinations.feed,
+              stories: destinations.stories,
+              repostFeedToStories: destinations.repostFeedToStories
+            },
             ok: false,
             error: err.message
           });
@@ -688,9 +721,14 @@ async function run() {
         sourcePostId: postId,
         caption: post.caption || "",
         linkUrl: linkUrl || "",
-        destinations,
+        destinations: {
+          feed: destinations.feed,
+          stories: destinations.stories,
+          repostFeedToStories: destinations.repostFeedToStories
+        },
         postToFeed: destinations.feed,
         postToStories: destinations.stories,
+        repostFeedToStories: destinations.repostFeedToStories,
         valueAddEnabled: Boolean(post.valueAddEnabled),
         mediaType,
         fileName: post.fileName || "",
