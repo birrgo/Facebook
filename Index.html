@@ -108,6 +108,49 @@
       cursor: pointer;
     }
     .checkbox-row input { width: auto; margin: 0; }
+    .placement-box {
+      background: #f7f8fa;
+      border: 1px solid #e4e6eb;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 8px 0 14px;
+    }
+    .placement-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .placement-checks {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .dest-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #e7f3ff;
+      color: #1877f2;
+      margin-right: 4px;
+    }
+    .dest-pill.reels {
+      background: #fce7f3;
+      color: #9d174d;
+    }
+    .dest-pill.stories {
+      background: #f3e8ff;
+      color: #6b21a8;
+    }
+    .dest-pill.repost {
+      background: #fef3c7;
+      color: #92400e;
+    }
     .badge {
       padding: 4px 10px;
       border-radius: 999px;
@@ -266,22 +309,59 @@
         <div id="pagesListContainer"></div>
       </div>
 
-      <!-- 2. VIDEO URL OR IMAGE UPLOAD (RTDB ONLY) -->
+      <!-- 2. TEXT ONLY, VIDEO URL, OR IMAGE UPLOAD (RTDB ONLY) -->
       <div class="card">
-        <h2>2. Schedule Video (Any Shareable Link) or Image (to Realtime DB)</h2>
+        <h2>2. Schedule Text Only, Video Link, or Image (to Realtime DB)</h2>
         <small>
-          Supports <strong>YouTube, TikTok, Facebook, Instagram, Google Drive, Dropbox</strong>, or direct <code>.mp4</code> URLs.
-          Images are compressed and saved directly to Realtime Database.
+          Supports <strong>Text Only</strong> posts, <strong>YouTube, TikTok, Facebook, Instagram, Google Drive, Dropbox</strong>, or direct <code>.mp4</code> URLs,
+          and compressed <strong>Images</strong> saved directly to Realtime Database.
         </small>
 
-        <label style="display:block; margin-top:10px;"><strong>Media Type</strong></label>
+        <label style="display:block; margin-top:10px;"><strong>Post / Media Type</strong></label>
         <select id="mediaModeSelect">
+          <option value="text">Text Only (Status / Link / Announcement)</option>
           <option value="video">Video (YouTube, TikTok, Facebook, Drive, Direct URL)</option>
           <option value="image">Image (Upload to Realtime DB)</option>
         </select>
 
+        <!-- WHERE TO PUBLISH: INDEPENDENT CHECKBOXES -->
+        <div class="placement-box">
+          <strong>Publish To (Select any combination — alone or together)</strong>
+          <div class="placement-controls">
+            <div class="placement-checks">
+              <label class="checkbox-row" style="margin:0;">
+                <input type="checkbox" id="postToFeedCheckbox" checked />
+                <span><strong>Feed</strong></span>
+              </label>
+              <label class="checkbox-row" style="margin:0;">
+                <input type="checkbox" id="postToReelsCheckbox" />
+                <span><strong>Reels</strong></span>
+              </label>
+              <label class="checkbox-row" style="margin:0;">
+                <input type="checkbox" id="postToStoriesCheckbox" />
+                <span><strong>Stories</strong></span>
+              </label>
+              <label class="checkbox-row" style="margin:0;">
+                <input type="checkbox" id="repostFeedToStoriesCheckbox" />
+                <span><strong>Repost to Stories</strong></span>
+              </label>
+            </div>
+            <button type="button" id="selectFeedOnlyBtn" class="btn-secondary">Feed Only</button>
+          </div>
+          <small id="placementHint" style="display:block; margin-top:6px;">
+            Pick Feed, Reels, Stories, or Repost to Stories individually or together.
+          </small>
+        </div>
+
+        <!-- TEXT ONLY INFO -->
+        <div id="textOnlySection" class="value-add-box" style="margin-top:4px; margin-bottom:10px;">
+          <small>
+            <strong>Text-Only Mode:</strong> No media file or video link is attached. Write your post text in the caption field below (you can also include any plain web link directly inside the text).
+          </small>
+        </div>
+
         <!-- VIDEO URL INPUTS -->
-        <div id="videoUrlSection">
+        <div id="videoUrlSection" class="hidden">
           <label><strong>Shareable Video Link</strong></label>
           <input
             type="url"
@@ -307,8 +387,8 @@
           </label>
         </div>
 
-        <label><strong>Base Post Caption</strong></label>
-        <textarea id="captionInput" rows="3" placeholder="Write core caption or update..."></textarea>
+        <label><strong>Base Post Caption / Text</strong></label>
+        <textarea id="captionInput" rows="3" placeholder="Write post text, announcement, or update..."></textarea>
 
         <!-- PER-PAGE VALUE ADD -->
         <div class="value-add-box">
@@ -429,6 +509,12 @@
     const cancelEditPageBtn = document.getElementById("cancelEditPageBtn");
     const pagesListContainer = document.getElementById("pagesListContainer");
     const pageCheckboxesContainer = document.getElementById("pageCheckboxesContainer");
+    const postToFeedCheckbox = document.getElementById("postToFeedCheckbox");
+    const postToReelsCheckbox = document.getElementById("postToReelsCheckbox");
+    const postToStoriesCheckbox = document.getElementById("postToStoriesCheckbox");
+    const repostFeedToStoriesCheckbox = document.getElementById("repostFeedToStoriesCheckbox");
+    const selectFeedOnlyBtn = document.getElementById("selectFeedOnlyBtn");
+    const placementHint = document.getElementById("placementHint");
     const enableValueAddCheckbox = document.getElementById("enableValueAddCheckbox");
     const valueAddControls = document.getElementById("valueAddControls");
     const valueAddStyleSelect = document.getElementById("valueAddStyleSelect");
@@ -437,6 +523,7 @@
     const postedItemsContainer = document.getElementById("postedItemsContainer");
     const selectAllCheckbox = document.getElementById("selectAllCheckbox");
     const mediaModeSelect = document.getElementById("mediaModeSelect");
+    const textOnlySection = document.getElementById("textOnlySection");
     const videoUrlSection = document.getElementById("videoUrlSection");
     const imageUploadSection = document.getElementById("imageUploadSection");
     const videoUrlInput = document.getElementById("videoUrlInput");
@@ -469,10 +556,85 @@
         .replace(/'/g, "&#39;");
     }
 
-    /**
-     * Parses any shareable video link (YouTube, TikTok, Facebook, Instagram,
-     * Google Drive, Dropbox, Vimeo, X/Twitter, or direct video file).
-     */
+    function getPlacementInfo() {
+      const feed = Boolean(postToFeedCheckbox.checked);
+      const reels = Boolean(postToReelsCheckbox.checked);
+      const stories = Boolean(postToStoriesCheckbox.checked);
+      const repostFeedToStories = Boolean(repostFeedToStoriesCheckbox.checked);
+
+      const active = [];
+      if (feed) active.push("feed");
+      if (reels) active.push("reels");
+      if (stories) active.push("stories");
+      if (repostFeedToStories) active.push("repost_to_stories");
+
+      const mode = active.length === 0 ? "none" : active.join("+");
+
+      return { feed, reels, stories, repostFeedToStories, mode };
+    }
+
+    function updatePlacementHint() {
+      const { feed, reels, stories, repostFeedToStories } = getPlacementInfo();
+      const mediaMode = mediaModeSelect.value;
+
+      if (!feed && !reels && !stories && !repostFeedToStories) {
+        placementHint.style.color = "#c91836";
+        placementHint.textContent = "Select at least one destination (Feed, Reels, Stories, or Repost to Stories).";
+        return;
+      }
+
+      if ((reels || stories || repostFeedToStories) && mediaMode === "text") {
+        placementHint.style.color = "#856404";
+        placementHint.textContent =
+          "Reels and Stories require video or image media; text-only posts only publish to Feed.";
+        return;
+      }
+
+      if (reels && mediaMode === "image") {
+        placementHint.style.color = "#856404";
+        placementHint.textContent =
+          "Facebook Reels require a video; image media will skip Reels unless switched to Video.";
+        return;
+      }
+
+      const labels = [];
+      if (feed) labels.push("Feed");
+      if (reels) labels.push("Reels");
+      if (stories) labels.push("Stories");
+      if (repostFeedToStories) labels.push("Repost to Stories");
+
+      placementHint.style.color = "#65676b";
+      placementHint.textContent = `Selected: ${labels.join(" + ")}.`;
+    }
+
+    [postToFeedCheckbox, postToReelsCheckbox, postToStoriesCheckbox, repostFeedToStoriesCheckbox].forEach(
+      (cb) => cb.addEventListener("change", updatePlacementHint)
+    );
+
+    selectFeedOnlyBtn.addEventListener("click", () => {
+      postToFeedCheckbox.checked = true;
+      postToReelsCheckbox.checked = false;
+      postToStoriesCheckbox.checked = false;
+      repostFeedToStoriesCheckbox.checked = false;
+      updatePlacementHint();
+    });
+
+    function formatDestinationLabels(post) {
+      const feed = Boolean(post.destinations?.feed ?? post.postToFeed ?? false);
+      const reels = Boolean(post.destinations?.reels ?? post.postToReels ?? false);
+      const stories = Boolean(post.destinations?.stories ?? post.postToStories ?? false);
+      const repost = Boolean(
+        post.destinations?.repostFeedToStories ?? post.repostFeedToStories ?? false
+      );
+      const tags = [];
+      if (feed) tags.push(`<span class="dest-pill">FEED</span>`);
+      if (reels) tags.push(`<span class="dest-pill reels">REELS</span>`);
+      if (stories) tags.push(`<span class="dest-pill stories">STORIES</span>`);
+      if (repost) tags.push(`<span class="dest-pill repost">REPOST → STORIES</span>`);
+      if (tags.length === 0) tags.push(`<span class="dest-pill">NONE</span>`);
+      return tags.join("");
+    }
+
     function analyzeVideoUrl(rawUrl) {
       const cleanUrl = (rawUrl || "").trim();
       if (!cleanUrl || !/^https?:\/\//i.test(cleanUrl)) {
@@ -489,7 +651,6 @@
       const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
       const path = parsed.pathname;
 
-      // 1. YouTube (watch, shorts, youtu.be, embed, live)
       if (host === "youtu.be" || host.endsWith("youtube.com")) {
         let videoId = "";
         if (host === "youtu.be") {
@@ -513,7 +674,6 @@
         };
       }
 
-      // 2. TikTok (full link or vm.tiktok.com / vt.tiktok.com short link)
       if (host.endsWith("tiktok.com")) {
         const match = path.match(/\/video\/(\d+)/);
         const videoId = match ? match[1] : "";
@@ -528,7 +688,6 @@
         };
       }
 
-      // 3. Facebook (watch, reel, video, fb.watch, share/v, share/r)
       if (host.endsWith("facebook.com") || host === "fb.watch") {
         const embedUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(cleanUrl)}&show_text=false`;
         return {
@@ -542,7 +701,6 @@
         };
       }
 
-      // 4. Instagram (Reels / Posts)
       if (host.endsWith("instagram.com")) {
         return {
           sourceType: "instagram",
@@ -555,7 +713,6 @@
         };
       }
 
-      // 5. X / Twitter
       if (host === "x.com" || host === "twitter.com") {
         return {
           sourceType: "twitter",
@@ -568,7 +725,6 @@
         };
       }
 
-      // 6. Google Drive share link -> convert to direct download URL
       if (host === "drive.google.com") {
         const fileMatch = path.match(/\/file\/d\/([^/]+)/);
         const fileId = fileMatch ? fileMatch[1] : parsed.searchParams.get("id");
@@ -586,7 +742,6 @@
         };
       }
 
-      // 7. Dropbox share link -> force dl=1
       if (host.endsWith("dropbox.com")) {
         const dbUrl = new URL(cleanUrl);
         dbUrl.searchParams.set("dl", "1");
@@ -601,7 +756,6 @@
         };
       }
 
-      // 8. Direct video file (.mp4, .mov, .webm, .m4v, .mkv)
       if (/\.(mp4|mov|webm|m4v|mkv|ogg)(\?.*)?$/i.test(cleanUrl)) {
         return {
           sourceType: "direct",
@@ -614,7 +768,6 @@
         };
       }
 
-      // 9. Any other shareable video webpage (Vimeo, Dailymotion, Streamable, etc.)
       return {
         sourceType: "web_link",
         label: `Shareable Video Link (${host})`,
@@ -749,6 +902,14 @@
       videoPreview.removeAttribute("src");
       socialVideoIframe.removeAttribute("src");
       selectedLocalVideoMeta = null;
+    }
+
+    function syncMediaModeSections() {
+      const mode = mediaModeSelect.value;
+      textOnlySection.classList.toggle("hidden", mode !== "text");
+      videoUrlSection.classList.toggle("hidden", mode !== "video");
+      imageUploadSection.classList.toggle("hidden", mode !== "image");
+      updatePlacementHint();
     }
 
     const savedGhToken = localStorage.getItem(GH_TOKEN_STORAGE_KEY);
@@ -939,9 +1100,7 @@
       clearMediaPreview();
       imageFileInput.value = "";
       videoLocalPreviewInput.value = "";
-      const isVideo = mediaModeSelect.value === "video";
-      videoUrlSection.classList.toggle("hidden", !isVideo);
-      imageUploadSection.classList.toggle("hidden", isVideo);
+      syncMediaModeSections();
     });
 
     videoLocalPreviewInput.addEventListener("change", () => {
@@ -1039,6 +1198,7 @@
       const selectedPages = Array.from(document.querySelectorAll(".page-target-cb:checked")).map(
         (cb) => cb.value
       );
+      const placement = getPlacementInfo();
       const currentUser = auth.currentUser;
 
       if (!currentUser) {
@@ -1047,6 +1207,10 @@
       }
       if (selectedPages.length === 0) {
         alert("Please select at least one Facebook Page.");
+        return;
+      }
+      if (!placement.feed && !placement.reels && !placement.stories && !placement.repostFeedToStories) {
+        alert("Please select at least one destination (Feed, Reels, Stories, or Repost to Stories).");
         return;
       }
 
@@ -1075,6 +1239,10 @@
         };
       });
 
+      const hasAnyVariationText = Object.values(pageVariations).some(
+        (v) => Boolean((v.finalCaption || "").trim())
+      );
+
       const mode = mediaModeSelect.value;
       btn.disabled = true;
       statusMessage.style.color = "#1877f2";
@@ -1082,7 +1250,40 @@
       try {
         let payload;
 
-        if (mode === "video") {
+        if (mode === "text") {
+          if (!caption && !hasAnyVariationText) {
+            alert("Please enter post text or a per-page note for a Text Only post.");
+            return;
+          }
+          statusMessage.textContent = "Saving Text Only post to Realtime Database...";
+
+          payload = {
+            mediaType: "text",
+            postType: "text",
+            postToFeed: placement.feed,
+            postToReels: placement.reels,
+            postToStories: placement.stories,
+            repostFeedToStories: placement.repostFeedToStories,
+            placementMode: placement.mode,
+            destinations: {
+              feed: placement.feed,
+              reels: placement.reels,
+              stories: placement.stories,
+              repostFeedToStories: placement.repostFeedToStories
+            },
+            mediaUrl: "",
+            fileName: "",
+            fileSize: 0,
+            mimeType: "text/plain",
+            caption,
+            valueAddEnabled: enableValueAddCheckbox.checked,
+            pageVariations,
+            targetPages: selectedPages,
+            scheduledTime,
+            status: "pending",
+            createdAt: Date.now()
+          };
+        } else if (mode === "video") {
           const videoInfo = analyzeVideoUrl(videoUrlInput.value);
           if (!videoInfo) {
             alert("Please enter a valid http:// or https:// video link.");
@@ -1092,6 +1293,17 @@
 
           payload = {
             mediaType: "video",
+            postToFeed: placement.feed,
+            postToReels: placement.reels,
+            postToStories: placement.stories,
+            repostFeedToStories: placement.repostFeedToStories,
+            placementMode: placement.mode,
+            destinations: {
+              feed: placement.feed,
+              reels: placement.reels,
+              stories: placement.stories,
+              repostFeedToStories: placement.repostFeedToStories
+            },
             videoSourceType: videoInfo.sourceType,
             videoSourceLabel: videoInfo.label,
             requiresExtractor: videoInfo.requiresExtractor,
@@ -1129,6 +1341,17 @@
           const dataUrl = await fileToDataUrl(file);
           payload = {
             mediaType: "image",
+            postToFeed: placement.feed,
+            postToReels: placement.reels,
+            postToStories: placement.stories,
+            repostFeedToStories: placement.repostFeedToStories,
+            placementMode: placement.mode,
+            destinations: {
+              feed: placement.feed,
+              reels: placement.reels,
+              stories: placement.stories,
+              repostFeedToStories: placement.repostFeedToStories
+            },
             mediaUrl: dataUrl,
             fileName: file.name,
             fileSize: file.size,
@@ -1234,14 +1457,25 @@
         const row = document.createElement("div");
         row.className = "list-item";
         const timeText = new Date(post.scheduledTime).toLocaleString();
-        const isVideo = post.mediaType === "video" || post.mimeType?.startsWith("video/");
+        const isText = post.mediaType === "text" || post.postType === "text";
+        const isVideo = !isText && (post.mediaType === "video" || post.mimeType?.startsWith("video/"));
         const safeSrc = escapeHtml(post.mediaUrl || "");
-        const badgeTag = (post.videoSourceType || "VIDEO").toUpperCase();
-        const thumbHtml = isVideo
-          ? `<div class="thumb">${escapeHtml(badgeTag)}</div>`
-          : `<img src="${safeSrc}" class="thumb" alt="Post" />`;
+
+        let thumbHtml;
+        let sourceDesc;
+        if (isText) {
+          thumbHtml = `<div class="thumb" style="background:#1877f2;">TEXT</div>`;
+          sourceDesc = "Text Only";
+        } else if (isVideo) {
+          const badgeTag = (post.videoSourceType || "VIDEO").toUpperCase();
+          thumbHtml = `<div class="thumb">${escapeHtml(badgeTag)}</div>`;
+          sourceDesc = post.videoSourceLabel || "Video URL";
+        } else {
+          thumbHtml = `<img src="${safeSrc}" class="thumb" alt="Post" />`;
+          sourceDesc = "Image";
+        }
+
         const sizeMb = post.fileSize ? ` • ${(post.fileSize / (1024 * 1024)).toFixed(1)} MB` : "";
-        const sourceDesc = isVideo ? (post.videoSourceLabel || "Video URL") : "Image";
         const errSummary = post.status === "failed" ? formatFailureReasons(post.publishResults) : "";
         const varSummary = formatVariationSummary(post);
 
@@ -1250,6 +1484,7 @@
             ${thumbHtml}
             <div>
               <strong>${escapeHtml(post.caption || "(No caption)")}</strong><br />
+              <div style="margin:3px 0;">${formatDestinationLabels(post)}</div>
               <small>${escapeHtml(sourceDesc)}${escapeHtml(sizeMb)} • ${escapeHtml(timeText)} • Pages: ${escapeHtml(formatPageNames(post.targetPages))}</small>
               ${varSummary ? `<span class="var-preview">${escapeHtml(varSummary)}</span>` : ""}
               ${errSummary ? `<span class="error-text">${escapeHtml(errSummary)}</span>` : ""}
@@ -1279,7 +1514,18 @@
           id,
           source: "queue",
           caption: post.caption,
-          mediaType: post.mediaType || (post.mimeType?.startsWith("video/") ? "video" : "image"),
+          postToFeed: post.postToFeed,
+          postToReels: post.postToReels,
+          postToStories: post.postToStories,
+          repostFeedToStories: post.repostFeedToStories,
+          destinations: post.destinations,
+          mediaType:
+            post.mediaType ||
+            (post.postType === "text"
+              ? "text"
+              : post.mimeType?.startsWith("video/")
+                ? "video"
+                : "image"),
           videoSourceLabel: post.videoSourceLabel,
           fileName: post.fileName,
           targetPages: post.targetPages,
@@ -1299,13 +1545,19 @@
         const row = document.createElement("div");
         row.className = "list-item";
         const postedTime = new Date(item.postedAt || Date.now()).toLocaleString();
-        const mediaLabel = item.mediaType === "video" ? (item.videoSourceLabel || "Video") : "Image";
+        const mediaLabel =
+          item.mediaType === "text"
+            ? "Text Only"
+            : item.mediaType === "video"
+              ? (item.videoSourceLabel || "Video")
+              : "Image";
 
         row.innerHTML = `
           <div class="item-left">
             <div class="thumb" style="background:#155724;">POSTED</div>
             <div>
               <strong>${escapeHtml(item.caption || item.fileName || "(No caption)")}</strong><br />
+              <div style="margin:3px 0;">${formatDestinationLabels(item)}</div>
               <small>${escapeHtml(mediaLabel)} • Posted: ${escapeHtml(postedTime)} • Pages: ${escapeHtml(formatPageNames(item.targetPages))}</small>
             </div>
           </div>
@@ -1420,6 +1672,8 @@
         renderPostedItems();
       });
     }
+
+    syncMediaModeSections();
   </script>
 </body>
 </html>
