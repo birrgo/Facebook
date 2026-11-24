@@ -42,20 +42,17 @@ function resolveDestinations(post) {
   const repostFeedToStories = Boolean(
     post.destinations?.repostFeedToStories ?? post.repostFeedToStories ?? false
   );
-  const feed = Boolean(
-    (post.destinations?.feed ?? post.postToFeed ?? true) || repostFeedToStories
-  );
-  const directStories = Boolean(
-    post.destinations?.stories ?? post.postToStories ?? false
-  );
-  // Mutual exclusion: choose 1 of 2 between direct Stories and Repost Feed to Stories
-  const stories = repostFeedToStories ? false : directStories;
+  const feed = Boolean(post.destinations?.feed ?? post.postToFeed ?? false);
+  const reels = Boolean(post.destinations?.reels ?? post.postToReels ?? false);
+  const directStories = Boolean(post.destinations?.stories ?? post.postToStories ?? false);
+  const publishToStories = directStories || repostFeedToStories;
 
   return {
     feed,
-    stories,
+    reels,
+    stories: directStories,
     repostFeedToStories,
-    publishToStories: stories || repostFeedToStories
+    publishToStories
   };
 }
 
@@ -294,9 +291,7 @@ async function publishFeedToPage({
 
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params
     });
 
@@ -321,9 +316,7 @@ async function publishFeedToPage({
 
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body
     });
 
@@ -360,10 +353,67 @@ async function publishFeedToPage({
   return data;
 }
 
+async function publishReelToPage({ fbPageId, accessToken, caption, cachedMedia }) {
+  const { buffer } = cachedMedia;
+  const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/video_reels`;
+
+  const startRes = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      upload_phase: "start",
+      access_token: accessToken
+    })
+  });
+  const startData = await startRes.json();
+  if (!startRes.ok || startData.error || !startData.video_id || !startData.upload_url) {
+    throw new Error(startData.error?.message || `Reel upload init failed (${startRes.status})`);
+  }
+
+  const uploadRes = await fetch(startData.upload_url, {
+    method: "POST",
+    headers: {
+      Authorization: `OAuth ${accessToken}`,
+      offset: "0",
+      file_size: String(buffer.byteLength),
+      "Content-Type": "application/octet-stream"
+    },
+    body: buffer
+  });
+  const uploadData = await uploadRes.json().catch(() => ({}));
+  if (!uploadRes.ok || uploadData.error) {
+    throw new Error(uploadData.error?.message || `Reel binary upload failed (${uploadRes.status})`);
+  }
+
+  const finishParams = new URLSearchParams({
+    upload_phase: "finish",
+    video_id: startData.video_id,
+    video_state: "PUBLISHED",
+    access_token: accessToken
+  });
+  if ((caption || "").trim()) {
+    finishParams.set("description", caption.trim());
+  }
+
+  const finishRes = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: finishParams
+  });
+  const finishData = await finishRes.json();
+  if (!finishRes.ok || finishData.error) {
+    throw new Error(finishData.error?.message || `Facebook Reel publish failed (${finishRes.status})`);
+  }
+
+  return {
+    ...finishData,
+    id: finishData.video_id || startData.video_id
+  };
+}
+
 async function publishPhotoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
   const { blob, filename } = cachedMedia;
 
-  // Step 1: Upload photo as unpublished (published=false) so it can be attached to a Story
   const uploadForm = new FormData();
   uploadForm.append("source", blob, filename);
   uploadForm.append("published", "false");
@@ -383,7 +433,6 @@ async function publishPhotoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
     );
   }
 
-  // Step 2: Publish the unpublished photo_id as a Page Story
   const storyBody = new URLSearchParams({
     photo_id: uploadData.id,
     access_token: accessToken
@@ -393,9 +442,7 @@ async function publishPhotoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/photo_stories`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: storyBody
     }
   );
@@ -412,7 +459,6 @@ async function publishVideoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
   const { buffer } = cachedMedia;
   const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/video_stories`;
 
-  // Step 1: Initialize resumable Story video upload
   const startBody = new URLSearchParams({
     upload_phase: "start",
     access_token: accessToken
@@ -420,9 +466,7 @@ async function publishVideoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
 
   const startRes = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: startBody
   });
   const startData = await startRes.json();
@@ -432,7 +476,6 @@ async function publishVideoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
     );
   }
 
-  // Step 2: Upload video binary to Meta's rupload URL
   const uploadRes = await fetch(startData.upload_url, {
     method: "POST",
     headers: {
@@ -450,7 +493,6 @@ async function publishVideoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
     );
   }
 
-  // Step 3: Finish and publish the Video Story
   const finishBody = new URLSearchParams({
     upload_phase: "finish",
     video_id: startData.video_id,
@@ -459,9 +501,7 @@ async function publishVideoStoryToPage({ fbPageId, accessToken, cachedMedia }) {
 
   const finishRes = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: finishBody
   });
   const finishData = await finishRes.json();
@@ -497,6 +537,7 @@ async function publishToPageTargets({
 }) {
   const outcome = {
     feedPostId: null,
+    reelPostId: null,
     storyPostId: null,
     storyMode: destinations.repostFeedToStories
       ? "repost_feed_to_stories"
@@ -523,21 +564,37 @@ async function publishToPageTargets({
     }
   }
 
+  if (destinations.reels) {
+    if (mediaType !== "video") {
+      errors.push("Reels: Facebook Reels require a video.");
+    } else {
+      try {
+        const reelRes = await publishReelToPage({
+          fbPageId,
+          accessToken,
+          caption,
+          cachedMedia
+        });
+        outcome.reelPostId = reelRes.post_id || reelRes.id || null;
+      } catch (err) {
+        errors.push(`Reels: ${err.message}`);
+      }
+    }
+  }
+
   if (destinations.publishToStories) {
-    const storyLabel = destinations.repostFeedToStories ? "Repost Feed to Stories" : "Stories";
+    const storyLabel = destinations.repostFeedToStories ? "Repost to Stories" : "Stories";
     const supportsStories = mediaType === "image" || mediaType === "video";
 
-    if (destinations.repostFeedToStories && destinations.feed && !outcome.feedPostId) {
-      errors.push(`${storyLabel}: Skipped because Feed post failed.`);
-    } else if (!supportsStories) {
-      if (!destinations.feed) {
+    if (!supportsStories) {
+      if (!destinations.feed && !destinations.reels) {
         errors.push(`${storyLabel}: Facebook Stories require an image or video.`);
       } else {
         outcome.storySkipped = true;
       }
     } else {
       try {
-        if (destinations.feed) {
+        if (destinations.feed || destinations.reels) {
           await sleep(1500);
         }
         const storyRes = await publishStoryToPage({
@@ -601,14 +658,14 @@ async function run() {
       ? post.targetPages
       : Object.values(post.targetPages || {});
 
-    if (!destinations.feed && !destinations.publishToStories) {
+    if (!destinations.feed && !destinations.reels && !destinations.publishToStories) {
       const processedAt = Date.now();
       const failedResults = targetKeys.map((pageKey) => ({
         pageKey,
         fbPageId: pages[pageKey]?.fbPageId || null,
         pageName: pages[pageKey]?.pageName || null,
         ok: false,
-        error: "No publish destination enabled (Feed, Stories, and Repost Feed to Stories are all false)."
+        error: "No publish destination enabled."
       }));
 
       await postRef.update({
@@ -676,12 +733,14 @@ async function run() {
             captionUsed: pageCaption,
             destinations: {
               feed: destinations.feed,
+              reels: destinations.reels,
               stories: destinations.stories,
               repostFeedToStories: destinations.repostFeedToStories
             },
             ok: true,
-            postId: fbOutcome.feedPostId || fbOutcome.storyPostId || null,
+            postId: fbOutcome.feedPostId || fbOutcome.reelPostId || fbOutcome.storyPostId || null,
             feedPostId: fbOutcome.feedPostId,
+            reelPostId: fbOutcome.reelPostId,
             storyPostId: fbOutcome.storyPostId,
             storyMode: fbOutcome.storyMode,
             storySkipped: fbOutcome.storySkipped
@@ -695,6 +754,7 @@ async function run() {
             captionUsed: pageCaption,
             destinations: {
               feed: destinations.feed,
+              reels: destinations.reels,
               stories: destinations.stories,
               repostFeedToStories: destinations.repostFeedToStories
             },
@@ -723,10 +783,12 @@ async function run() {
         linkUrl: linkUrl || "",
         destinations: {
           feed: destinations.feed,
+          reels: destinations.reels,
           stories: destinations.stories,
           repostFeedToStories: destinations.repostFeedToStories
         },
         postToFeed: destinations.feed,
+        postToReels: destinations.reels,
         postToStories: destinations.stories,
         repostFeedToStories: destinations.repostFeedToStories,
         valueAddEnabled: Boolean(post.valueAddEnabled),
