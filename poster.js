@@ -241,9 +241,6 @@ function cleanupTempMedia(cachedMedia) {
   }
 }
 
-/**
- * Normalizes all structured Facebook settings saved by the frontend (both top-level and inside post.fbSettings)
- */
 function extractFbSettings(post) {
   const s = post.fbSettings && typeof post.fbSettings === "object" ? post.fbSettings : {};
 
@@ -280,7 +277,6 @@ function extractFbSettings(post) {
   const feelingActivity = String(
     post.feelingActivity || s.feelingActivity || feelingData?.display || ""
   ).trim();
-  const feelingEmoji = String(feelingData?.emoji || "").trim();
 
   const audience = String(
     post.audience || s.audience || post.privacy?.value || s.privacy?.value || "EVERYONE"
@@ -303,7 +299,6 @@ function extractFbSettings(post) {
     collaboratorPageId,
     feelingCode,
     feelingActivity,
-    feelingEmoji,
     audience,
     whoCanComment,
     playlist,
@@ -316,9 +311,6 @@ function extractFbSettings(post) {
   };
 }
 
-/**
- * Resolves a human location / GPS coordinates into a valid Facebook Place ID via Graph API Place Search.
- */
 async function resolveFacebookPlaceId({ accessToken, fbSettings }) {
   const { location, locationData } = fbSettings;
   if (!location && !locationData) return null;
@@ -366,44 +358,11 @@ async function resolveFacebookPlaceId({ accessToken, fbSettings }) {
 }
 
 /**
- * Builds the enriched caption containing Feeling/Activity, Location fallback (if Place ID unavailable or on Reels),
- * Tagged Page mentions, and AI disclosure badge if enabled.
+ * Keeps the description clean: returns only the post/reel description text
+ * without injecting feeling, location, tag, or AI label lines into the text body.
  */
-function buildEnrichedCaption(baseCaption, fbSettings, { includeLocationInText = false } = {}) {
-  const parts = [];
-  const headerBadges = [];
-
-  if (fbSettings.feelingActivity) {
-    const emojiPrefix = fbSettings.feelingEmoji ? `${fbSettings.feelingEmoji} ` : "😊 ";
-    headerBadges.push(`${emojiPrefix}${fbSettings.feelingActivity}`);
-  }
-
-  if (includeLocationInText && fbSettings.location) {
-    headerBadges.push(`📍 ${fbSettings.location}`);
-  }
-
-  if (headerBadges.length > 0) {
-    parts.push(headerBadges.join(" • "));
-  }
-
-  if ((baseCaption || "").trim()) {
-    parts.push(baseCaption.trim());
-  }
-
-  if (fbSettings.taggedPages.length > 0) {
-    const mentions = fbSettings.taggedPages
-      .map((p) => (p?.pageName ? `@${p.pageName}` : ""))
-      .filter(Boolean);
-    if (mentions.length > 0) {
-      parts.push(`With: ${mentions.join(", ")}`);
-    }
-  }
-
-  if (fbSettings.isAiGenerated) {
-    parts.push("🤖 Made with AI");
-  }
-
-  return parts.join("\n\n").trim();
+function buildDescriptionOnly(caption) {
+  return String(caption || "").trim();
 }
 
 function resolveCaptionForPage(post, pageKey, page) {
@@ -431,9 +390,6 @@ function resolveCaptionForPage(post, pageKey, page) {
   return (post.caption || "").trim();
 }
 
-/**
- * Posts the selected Auto First Comment on the newly published Facebook post/reel.
- */
 async function postFirstComment({ targetObjectId, accessToken, commentText }) {
   if (!targetObjectId || !commentText) return null;
 
@@ -469,11 +425,8 @@ async function publishFeedToPage({
   fbSettings,
   resolvedPlace
 }) {
-  // Exclude current page itself from tags list
   const validTags = fbSettings.taggedIds.filter((id) => id !== String(fbPageId));
-  const finalCaption = buildEnrichedCaption(caption, fbSettings, {
-    includeLocationInText: Boolean(fbSettings.location && !resolvedPlace?.placeId)
-  });
+  const descriptionText = buildDescriptionOnly(caption);
 
   if (mediaType === "link") {
     const targetLink = (linkUrl || extractFirstUrl(caption)).trim();
@@ -487,8 +440,8 @@ async function publishFeedToPage({
       published: String(fbSettings.published),
       access_token: accessToken
     });
-    if (finalCaption) {
-      params.set("message", finalCaption);
+    if (descriptionText) {
+      params.set("message", descriptionText);
     }
     if (resolvedPlace?.placeId) {
       params.set("place", resolvedPlace.placeId);
@@ -511,13 +464,13 @@ async function publishFeedToPage({
   }
 
   if (mediaType === "text") {
-    if (!finalCaption) {
+    if (!descriptionText) {
       throw new Error("Text-only post has empty message text.");
     }
 
     const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/feed`;
     const body = new URLSearchParams({
-      message: finalCaption,
+      message: descriptionText,
       published: String(fbSettings.published),
       access_token: accessToken
     });
@@ -550,8 +503,8 @@ async function publishFeedToPage({
   const formData = new FormData();
 
   formData.append("source", blob, filename);
-  if (finalCaption) {
-    formData.append(isVideo ? "description" : "caption", finalCaption);
+  if (descriptionText) {
+    formData.append(isVideo ? "description" : "caption", descriptionText);
   }
   formData.append("published", String(fbSettings.published));
 
@@ -560,7 +513,6 @@ async function publishFeedToPage({
   }
 
   if (!isVideo && validTags.length > 0) {
-    // /photos accepts JSON array of tag objects: [{ tag_uid: "..." }]
     formData.append(
       "tags",
       JSON.stringify(validTags.map((id) => ({ tag_uid: id })))
@@ -584,11 +536,10 @@ async function publishFeedToPage({
   });
   let data = await response.json();
 
-  // Graceful fallback if collaborator_id is rejected due to page permission rules
   if ((!response.ok || data.error) && isVideo && fbSettings.collaboratorPageId) {
     const retryForm = new FormData();
     retryForm.append("source", blob, filename);
-    if (finalCaption) retryForm.append("description", finalCaption);
+    if (descriptionText) retryForm.append("description", descriptionText);
     retryForm.append("published", String(fbSettings.published));
     if (resolvedPlace?.placeId) retryForm.append("place", resolvedPlace.placeId);
     if (fbSettings.playlist) retryForm.append("title", fbSettings.playlist.replace(/_/g, " "));
@@ -615,9 +566,7 @@ async function publishReelToPage({
   const { buffer } = cachedMedia;
   const endpoint = `https://graph.facebook.com/${GRAPH_API_VERSION}/${fbPageId}/video_reels`;
 
-  const finalReelCaption = buildEnrichedCaption(caption, fbSettings, {
-    includeLocationInText: Boolean(fbSettings.location)
-  });
+  const descriptionText = buildDescriptionOnly(caption);
 
   const startRes = await fetch(endpoint, {
     method: "POST",
@@ -654,8 +603,8 @@ async function publishReelToPage({
       video_state: fbSettings.published ? "PUBLISHED" : "DRAFT",
       access_token: accessToken
     });
-    if (finalReelCaption) {
-      finishParams.set("description", finalReelCaption);
+    if (descriptionText) {
+      finishParams.set("description", descriptionText);
     }
     if (fbSettings.playlist) {
       finishParams.set("title", fbSettings.playlist.replace(/_/g, " "));
@@ -680,7 +629,6 @@ async function publishReelToPage({
   });
   let finishData = await finishRes.json();
 
-  // Retry without collaborator_id if collaborator invite is unsupported on the target page
   if ((!finishRes.ok || finishData.error) && fbSettings.collaboratorPageId) {
     finishRes = await fetch(endpoint, {
       method: "POST",
@@ -880,7 +828,6 @@ async function publishToPageTargets({
     }
   }
 
-  // Post Auto First Comment on Feed post or Reel if configured
   const commentTargetId = outcome.feedPostId || outcome.reelPostId;
   if (fbSettings.firstComment && commentTargetId) {
     await sleep(1200);
@@ -1041,7 +988,7 @@ async function run() {
             pageKey,
             fbPageId: page.fbPageId,
             pageName: page.pageName,
-            captionUsed: pageCaption,
+            captionUsed: buildDescriptionOnly(pageCaption),
             destinations: {
               feed: destinations.feed,
               reels: destinations.reels,
@@ -1064,7 +1011,7 @@ async function run() {
             pageKey,
             fbPageId: page.fbPageId,
             pageName: page.pageName,
-            captionUsed: pageCaption,
+            captionUsed: buildDescriptionOnly(pageCaption),
             destinations: {
               feed: destinations.feed,
               reels: destinations.reels,
@@ -1092,7 +1039,7 @@ async function run() {
       await deleteStorageFileIfPresent(post.storagePath);
       await db.ref("postedHistory").push({
         sourcePostId: postId,
-        caption: post.caption || "",
+        caption: buildDescriptionOnly(post.caption || ""),
         linkUrl: linkUrl || "",
         fbSettings: post.fbSettings || fbSettings,
         location: fbSettings.location,
