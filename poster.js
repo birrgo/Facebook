@@ -3,25 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import admin from "firebase-admin";
 
 const execFileAsync = promisify(execFile);
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-const databaseURL = process.env.FIREBASE_DATABASE_URL;
-const storageBucketName =
-  process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`;
 const PAGE_POST_DELAY_MS = Number(process.env.PAGE_POST_DELAY_MS || 4000);
 const GRAPH_API_VERSION = "v22.0";
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL,
-  storageBucket: storageBucketName
-});
-
-const db = admin.database();
-const bucket = admin.storage().bucket();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -172,7 +158,7 @@ async function resolveMediaBlob(post, mediaType) {
   ).trim();
 
   if (!mediaSource || typeof mediaSource !== "string") {
-    throw new Error("Missing media URL or image data in scheduled post.");
+    throw new Error("Missing media URL or image data in post payload.");
   }
 
   if (mediaSource.startsWith("data:")) {
@@ -311,9 +297,6 @@ function extractFbSettings(post) {
   };
 }
 
-/**
- * Multi-strategy Place search to resolve OpenStreetMap/GPS location to a Facebook Place ID.
- */
 async function resolveFacebookPlaceId({ accessToken, fbSettings }) {
   const { location, locationData } = fbSettings;
   if (!location && !locationData) return null;
@@ -367,9 +350,6 @@ async function resolveFacebookPlaceId({ accessToken, fbSettings }) {
   return null;
 }
 
-/**
- * Maps structured Feeling/Activity codes to native Facebook Open Graph action/object IDs.
- */
 function resolveOpenGraphFeeling(fbSettings) {
   const code = (fbSettings.feelingCode || "").toUpperCase();
   if (!code) return null;
@@ -438,15 +418,15 @@ function resolveOpenGraphFeeling(fbSettings) {
   return null;
 }
 
-/**
- * Keeps the description clean: returns only the post/reel description text
- * without injecting feeling, location, tag, or AI label lines into the text body.
- */
 function buildDescriptionOnly(caption) {
   return String(caption || "").trim();
 }
 
-function resolveCaptionForPage(post, pageKey, page) {
+function resolveCaptionForPage(post, pageEntry, pageKey) {
+  if (typeof pageEntry?.finalCaption === "string" && pageEntry.finalCaption.trim()) {
+    return pageEntry.finalCaption.trim();
+  }
+
   const variations = post.pageVariations;
   if (post.valueAddEnabled && variations && typeof variations === "object") {
     const byKey = variations[pageKey];
@@ -454,11 +434,11 @@ function resolveCaptionForPage(post, pageKey, page) {
       return byKey.finalCaption.trim();
     }
 
-    if (page?.fbPageId) {
+    if (pageEntry?.fbPageId) {
       const byFbId = Object.values(variations).find(
         (v) =>
           v &&
-          String(v.fbPageId) === String(page.fbPageId) &&
+          String(v.fbPageId) === String(pageEntry.fbPageId) &&
           typeof v.finalCaption === "string" &&
           v.finalCaption.trim()
       );
@@ -551,7 +531,6 @@ async function publishFeedToPage({
     });
     let data = await response.json();
 
-    // Retry without Open Graph feeling params if rejected by Graph API
     if ((!response.ok || data.error) && ogFeeling) {
       response = await fetch(endpoint, {
         method: "POST",
@@ -561,7 +540,6 @@ async function publishFeedToPage({
       data = await response.json();
     }
 
-    // Retry without place/tags if page token lacks tagging/place permissions
     if ((!response.ok || data.error) && (resolvedPlace?.placeId || validTags.length > 0)) {
       response = await fetch(endpoint, {
         method: "POST",
@@ -984,197 +962,190 @@ async function publishToPageTargets({
   return outcome;
 }
 
-async function deleteStorageFileIfPresent(storagePath) {
-  if (!storagePath || typeof storagePath !== "string") return;
-  try {
-    await bucket.file(storagePath).delete({ ignoreNotFound: true });
-    console.log(`Deleted Firebase Storage file: ${storagePath}`);
-  } catch (err) {
-    console.warn(`Failed to delete Storage file ${storagePath}:`, err.message);
+function loadSecretPagesMap() {
+  const raw = (process.env.FB_PAGES_JSON || "").trim();
+  if (!raw) return {};
+
+  const parsed = JSON.parse(raw);
+  if (Array.isArray(parsed)) {
+    const map = {};
+    parsed.forEach((item, idx) => {
+      const k = String(item?.key || item?.fbPageId || `secret_${idx}`);
+      map[k] = item;
+    });
+    return map;
   }
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
+function resolveTargetPageEntries(post, secretPagesMap) {
+  const rawTargets = Array.isArray(post.targetPages)
+    ? post.targetPages
+    : post.targetPages && typeof post.targetPages === "object"
+      ? Object.values(post.targetPages)
+      : [];
+
+  return rawTargets.map((entry, idx) => {
+    if (typeof entry === "string") {
+      const secretPage = secretPagesMap[entry] || {};
+      return {
+        pageKey: entry,
+        pageName: secretPage.pageName || entry,
+        fbPageId: secretPage.fbPageId || entry,
+        accessToken: secretPage.accessToken || "",
+        finalCaption: ""
+      };
+    }
+
+    const pageKey = String(entry?.key || entry?.pageKey || entry?.fbPageId || `page_${idx}`);
+    const secretMatch =
+      secretPagesMap[pageKey] ||
+      Object.values(secretPagesMap).find(
+        (sp) => sp && String(sp.fbPageId) === String(entry?.fbPageId)
+      ) ||
+      {};
+
+    return {
+      pageKey,
+      pageName: entry?.pageName || secretMatch.pageName || pageKey,
+      fbPageId: String(entry?.fbPageId || secretMatch.fbPageId || "").trim(),
+      accessToken: String(entry?.accessToken || secretMatch.accessToken || "").trim(),
+      finalCaption: entry?.finalCaption || ""
+    };
+  });
+}
+
+function loadPostPayloadFromEnv() {
+  const raw = (process.env.POST_PAYLOAD || "").trim();
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("POST_PAYLOAD must be a JSON object.");
+  }
+  return parsed;
 }
 
 async function run() {
-  const now = Date.now();
-  const [postsSnap, pagesSnap] = await Promise.all([
-    db.ref("scheduledPosts").orderByChild("status").equalTo("pending").once("value"),
-    db.ref("fbPages").once("value")
-  ]);
-
-  const pendingPosts = postsSnap.val() || {};
-  const pages = pagesSnap.val() || {};
-
-  const postEntries = Object.entries(pendingPosts).filter(
-    ([, post]) => typeof post.scheduledTime === "number" && post.scheduledTime <= now
-  );
-
-  if (postEntries.length === 0) {
-    console.log("No due pending posts found.");
+  const post = loadPostPayloadFromEnv();
+  if (!post) {
+    console.log("No POST_PAYLOAD provided; nothing to dispatch.");
     return;
   }
 
-  for (const [postId, post] of postEntries) {
-    const postRef = db.ref(`scheduledPosts/${postId}`);
-    await postRef.update({ status: "processing", startedAt: Date.now() });
+  const secretPagesMap = loadSecretPagesMap();
+  const targetEntries = resolveTargetPageEntries(post, secretPagesMap);
 
-    const mediaType = detectMediaType(post);
-    const linkUrl = mediaType === "link" ? resolveLinkUrl(post) : "";
-    const destinations = resolveDestinations(post);
-    const fbSettings = extractFbSettings(post);
+  const mediaType = detectMediaType(post);
+  const linkUrl = mediaType === "link" ? resolveLinkUrl(post) : "";
+  const destinations = resolveDestinations(post);
+  const fbSettings = extractFbSettings(post);
 
-    const targetKeys = Array.isArray(post.targetPages)
-      ? post.targetPages
-      : Object.values(post.targetPages || {});
+  if (targetEntries.length === 0) {
+    throw new Error("No target pages found in POST_PAYLOAD.");
+  }
 
-    if (!destinations.feed && !destinations.reels && !destinations.publishToStories) {
-      const processedAt = Date.now();
-      const failedResults = targetKeys.map((pageKey) => ({
-        pageKey,
-        fbPageId: pages[pageKey]?.fbPageId || null,
-        pageName: pages[pageKey]?.pageName || null,
-        ok: false,
-        error: "No publish destination enabled."
-      }));
+  if (!destinations.feed && !destinations.reels && !destinations.publishToStories) {
+    throw new Error("No publish destination enabled in POST_PAYLOAD.");
+  }
 
-      await postRef.update({
-        status: "failed",
-        processedAt,
-        publishResults: failedResults
-      });
-      continue;
-    }
-
-    let cachedMedia = null;
-    try {
-      cachedMedia = await resolveMediaBlob(post, mediaType);
-    } catch (mediaErr) {
-      const processedAt = Date.now();
-      const failedResults = targetKeys.map((pageKey) => ({
-        pageKey,
-        fbPageId: pages[pageKey]?.fbPageId || null,
-        pageName: pages[pageKey]?.pageName || null,
-        ok: false,
-        error: mediaErr.message
-      }));
-
-      await postRef.update({
-        status: "failed",
-        processedAt,
-        publishResults: failedResults
-      });
-      continue;
-    }
+  let cachedMedia = null;
+  try {
+    cachedMedia = await resolveMediaBlob(post, mediaType);
 
     const results = [];
     let allSucceeded = true;
 
-    try {
-      for (let i = 0; i < targetKeys.length; i++) {
-        const pageKey = targetKeys[i];
-        if (i > 0 && PAGE_POST_DELAY_MS > 0) {
-          await sleep(PAGE_POST_DELAY_MS);
-        }
-
-        const page = pages[pageKey];
-        if (!page) {
-          allSucceeded = false;
-          results.push({ pageKey, ok: false, error: "Page not found in fbPages" });
-          continue;
-        }
-
-        const pageCaption = resolveCaptionForPage(post, pageKey, page);
-
-        try {
-          const fbOutcome = await publishToPageTargets({
-            fbPageId: page.fbPageId,
-            accessToken: page.accessToken,
-            caption: pageCaption,
-            mediaType,
-            linkUrl,
-            cachedMedia,
-            destinations,
-            fbSettings
-          });
-          results.push({
-            pageKey,
-            fbPageId: page.fbPageId,
-            pageName: page.pageName,
-            captionUsed: buildDescriptionOnly(pageCaption),
-            destinations: {
-              feed: destinations.feed,
-              reels: destinations.reels,
-              stories: destinations.stories,
-              repostFeedToStories: destinations.repostFeedToStories
-            },
-            ok: true,
-            postId: fbOutcome.feedPostId || fbOutcome.reelPostId || fbOutcome.storyPostId || null,
-            feedPostId: fbOutcome.feedPostId,
-            reelPostId: fbOutcome.reelPostId,
-            storyPostId: fbOutcome.storyPostId,
-            firstCommentId: fbOutcome.firstCommentId,
-            resolvedPlaceId: fbOutcome.resolvedPlaceId,
-            storyMode: fbOutcome.storyMode,
-            storySkipped: fbOutcome.storySkipped
-          });
-        } catch (err) {
-          allSucceeded = false;
-          results.push({
-            pageKey,
-            fbPageId: page.fbPageId,
-            pageName: page.pageName,
-            captionUsed: buildDescriptionOnly(pageCaption),
-            destinations: {
-              feed: destinations.feed,
-              reels: destinations.reels,
-              stories: destinations.stories,
-              repostFeedToStories: destinations.repostFeedToStories
-            },
-            ok: false,
-            error: err.message
-          });
-        }
+    for (let i = 0; i < targetEntries.length; i++) {
+      const pageEntry = targetEntries[i];
+      if (i > 0 && PAGE_POST_DELAY_MS > 0) {
+        await sleep(PAGE_POST_DELAY_MS);
       }
-    } finally {
-      cleanupTempMedia(cachedMedia);
+
+      if (!pageEntry.fbPageId || !pageEntry.accessToken) {
+        allSucceeded = false;
+        results.push({
+          pageKey: pageEntry.pageKey,
+          fbPageId: pageEntry.fbPageId || null,
+          pageName: pageEntry.pageName || null,
+          ok: false,
+          error: "Missing fbPageId or accessToken (set in UI or FB_PAGES_JSON secret)."
+        });
+        continue;
+      }
+
+      const pageCaption = resolveCaptionForPage(post, pageEntry, pageEntry.pageKey);
+
+      try {
+        const fbOutcome = await publishToPageTargets({
+          fbPageId: pageEntry.fbPageId,
+          accessToken: pageEntry.accessToken,
+          caption: pageCaption,
+          mediaType,
+          linkUrl,
+          cachedMedia,
+          destinations,
+          fbSettings
+        });
+        results.push({
+          pageKey: pageEntry.pageKey,
+          fbPageId: pageEntry.fbPageId,
+          pageName: pageEntry.pageName,
+          captionUsed: buildDescriptionOnly(pageCaption),
+          destinations: {
+            feed: destinations.feed,
+            reels: destinations.reels,
+            stories: destinations.stories,
+            repostFeedToStories: destinations.repostFeedToStories
+          },
+          ok: true,
+          postId: fbOutcome.feedPostId || fbOutcome.reelPostId || fbOutcome.storyPostId || null,
+          feedPostId: fbOutcome.feedPostId,
+          reelPostId: fbOutcome.reelPostId,
+          storyPostId: fbOutcome.storyPostId,
+          firstCommentId: fbOutcome.firstCommentId,
+          resolvedPlaceId: fbOutcome.resolvedPlaceId,
+          storyMode: fbOutcome.storyMode,
+          storySkipped: fbOutcome.storySkipped
+        });
+      } catch (err) {
+        allSucceeded = false;
+        results.push({
+          pageKey: pageEntry.pageKey,
+          fbPageId: pageEntry.fbPageId,
+          pageName: pageEntry.pageName,
+          captionUsed: buildDescriptionOnly(pageCaption),
+          destinations: {
+            feed: destinations.feed,
+            reels: destinations.reels,
+            stories: destinations.stories,
+            repostFeedToStories: destinations.repostFeedToStories
+          },
+          ok: false,
+          error: err.message
+        });
+      }
     }
 
-    const processedAt = Date.now();
-
-    await postRef.update({
-      status: allSucceeded ? "posted" : "failed",
-      processedAt,
+    const summary = {
+      status: allSucceeded ? "posted" : "partial_or_failed",
+      processedAt: Date.now(),
+      mediaType,
+      destinations: {
+        feed: destinations.feed,
+        reels: destinations.reels,
+        stories: destinations.stories,
+        repostFeedToStories: destinations.repostFeedToStories
+      },
       publishResults: results
-    });
+    };
 
-    if (allSucceeded) {
-      await deleteStorageFileIfPresent(post.storagePath);
-      await db.ref("postedHistory").push({
-        sourcePostId: postId,
-        caption: buildDescriptionOnly(post.caption || ""),
-        linkUrl: linkUrl || "",
-        fbSettings: post.fbSettings || fbSettings,
-        location: fbSettings.location,
-        feelingActivity: fbSettings.feelingActivity,
-        collaboratorPageId: fbSettings.collaboratorPageId,
-        taggedPages: fbSettings.taggedPages,
-        destinations: {
-          feed: destinations.feed,
-          reels: destinations.reels,
-          stories: destinations.stories,
-          repostFeedToStories: destinations.repostFeedToStories
-        },
-        postToFeed: destinations.feed,
-        postToReels: destinations.reels,
-        postToStories: destinations.stories,
-        repostFeedToStories: destinations.repostFeedToStories,
-        valueAddEnabled: Boolean(post.valueAddEnabled),
-        mediaType,
-        fileName: post.fileName || "",
-        targetPages: targetKeys,
-        postedAt: processedAt,
-        publishResults: results
-      });
+    console.log(JSON.stringify(summary, null, 2));
+
+    if (!allSucceeded) {
+      throw new Error("One or more Facebook Page targets failed to publish.");
     }
+  } finally {
+    cleanupTempMedia(cachedMedia);
   }
 }
 
@@ -1184,6 +1155,6 @@ run()
     process.exit(0);
   })
   .catch((err) => {
-    console.error("Worker fatal error:", err);
+    console.error("Worker fatal error:", err.message || err);
     process.exit(1);
   });
